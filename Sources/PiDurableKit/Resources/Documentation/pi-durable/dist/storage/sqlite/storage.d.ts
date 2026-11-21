@@ -1,6 +1,7 @@
-import type { Context, JsonValue } from "@earendil-works/chord";
+import type { Context } from "@earendil-works/chord/context";
+import type { JsonValue } from "@earendil-works/chord/json";
 import type { SqliteDatabase } from "@earendil-works/chord/sqlite";
-import type { ConversationId, ConversationQuery, ConversationRecord, Cursor, DocumentAddress, DocumentId, DocumentPoint, DocumentQuery, DocumentRecord, EntryId, EntryQuery, EntryRecord, Id, Page, Seq, Storage, StorageWrite, StoredDocument, SubmissionId, SubmissionQuery, SubmissionRecord, TaskId, TaskQuery, TaskRecord } from "../../types.ts";
+import type { CommitResult, ConversationId, ConversationQuery, ConversationRecord, Cursor, DocumentAddress, DocumentId, DocumentPoint, DocumentQuery, DocumentRecord, EntryId, EntryQuery, EntryRecord, Id, Page, Seq, Storage, StorageWrite, StoredDocument, SubmissionId, SubmissionQuery, SubmissionRecord, TaskId, TaskQuery, TaskRecord } from "../../types.ts";
 type StoredTask = TaskRecord<JsonValue, JsonValue, JsonValue>;
 export type SqliteStorageOptions = {
     /**
@@ -21,7 +22,24 @@ export declare class SqliteStorage implements Storage {
     private constructor();
     /** Initialize storage over an owned SQLite database facade. */
     static open(db: SqliteDatabase, options?: SqliteStorageOptions): Promise<SqliteStorage>;
-    commit(writes: readonly StorageWrite[], _context: Context): Promise<Seq>;
+    /**
+     * Commit `batches` in one SQL transaction, each with its own seq. Each batch is checked before it writes anything,
+     * against the state the earlier ones left, and the first one refused ends the batch: the transaction commits the ones
+     * before it. No savepoints, which Durable Objects do not allow: the checks run before the writes instead. The checks
+     * read the stored state of all batches up front and run in memory, and the accepted batches are written per table in
+     * multi-row statements (`commit.ts`), so a call costs a few statements whatever its number of batches. A batch with a
+     * copy reads the copy's source from the database: the batches before it are written first, so a call of many fork
+     * batches costs a few statements per fork.
+     */
+    commit(batches: readonly (readonly StorageWrite[])[], receive: (index: number, seq: Seq) => void, _context: Context): Promise<CommitResult>;
+    private readMetadata;
+    private writeMetadata;
+    /**
+     * Durable's own checks of one batch, against what the batches before it left: its document actions, or its refusal.
+     * Only these checks refuse; a failure of a database call rejects. A copy reads its source from the database, so the
+     * batches before it are written first.
+     */
+    private checkBatch;
     mintId<I extends Id<string>>(): Promise<I>;
     conversation(id: ConversationId, _context: Context): Promise<ConversationRecord | undefined>;
     scanConversations(query: ConversationQuery, limit: number, cursor: Cursor | undefined, _context: Context): Promise<Page<ConversationRecord, Cursor>>;
@@ -60,13 +78,8 @@ export declare class SqliteStorage implements Storage {
     private readConversation;
     private materializeDocument;
     private candidateNextId;
-    private checkGlobalIds;
-    private prepareDocumentActions;
-    private checkDocumentActions;
-    private currentDocumentId;
-    private applyTableWrite;
-    private claimId;
-    private applyDocumentActions;
+    /** Resolve each copy to a base of its source's state before this batch, which may not change the source. */
+    private resolveCopies;
     private assertOpen;
 }
 export {};

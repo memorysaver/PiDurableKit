@@ -1,5 +1,6 @@
-import type { Context, JsonValue } from "@earendil-works/chord";
-import type { ConversationId, ConversationQuery, ConversationRecord, Cursor, DocumentAddress, DocumentId, DocumentPoint, DocumentQuery, DocumentRecord, EntryId, EntryQuery, EntryRecord, Id, Page, Seq, Storage, StorageWrite, StoredDocument, SubmissionId, SubmissionQuery, SubmissionRecord, TaskId, TaskQuery, TaskRecord } from "../types.ts";
+import type { Context } from "@earendil-works/chord/context";
+import type { JsonValue } from "@earendil-works/chord/json";
+import type { CommitResult, ConversationId, ConversationQuery, ConversationRecord, Cursor, DocumentAddress, DocumentId, DocumentPoint, DocumentQuery, DocumentRecord, EntryId, EntryQuery, EntryRecord, Id, Page, Seq, Storage, StorageWrite, StoredDocument, SubmissionId, SubmissionQuery, SubmissionRecord, TaskId, TaskQuery, TaskRecord } from "../types.ts";
 type StoredTask = TaskRecord<JsonValue, JsonValue, JsonValue>;
 type IndexedDbStorageOptions = {
     readonly indexedDB?: IDBFactory;
@@ -16,7 +17,13 @@ export declare class IndexedDbStorage implements Storage {
     static open(name: string, options?: IndexedDbStorageOptions): Promise<IndexedDbStorage>;
     /** Delete a closed database. Open connections in this or another owner can block deletion. */
     static delete(name: string, options?: IndexedDbStorageOptions): Promise<void>;
-    commit(writes: readonly StorageWrite[], _context: Context): Promise<Seq>;
+    /**
+     * Commit `batches` in one IndexedDB transaction, each with its own seq. Each batch does every read and check, copy
+     * resolution included, against the state the earlier ones left before it issues its first write; the first one
+     * refused ends the call, and the transaction commits the ones before it. An error of IndexedDB itself aborts the
+     * transaction: the call rejects with nothing stored.
+     */
+    commit(batches: readonly (readonly StorageWrite[])[], receive: (index: number, seq: Seq) => void, _context: Context): Promise<CommitResult>;
     mintId<I extends Id<string>>(): Promise<I>;
     conversation(id: ConversationId, _context: Context): Promise<ConversationRecord | undefined>;
     scanConversations(query: ConversationQuery, limit: number, cursor: Cursor | undefined, _context: Context): Promise<Page<ConversationRecord, Cursor>>;
@@ -53,6 +60,8 @@ export declare class IndexedDbStorage implements Storage {
     private currentDocumentId;
     private claimId;
     private applyTableWrite;
+    /** Resolve each copy to a base of its source's state before this batch, which may not change the source. */
+    private resolveCopies;
     private applyDocumentActions;
     private assertOpen;
 }

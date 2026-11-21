@@ -1,20 +1,20 @@
-import type { Context } from "@earendil-works/chord";
-import { type Static, Type } from "typebox";
+import type { Context } from "@earendil-works/chord/context";
+import { type Static } from "@earendil-works/pi-schema";
 import type { ToolExecutionApi, ToolRegistration } from "../harness/types.ts";
-declare const bashSchema: Type.TObject<{
-    command: Type.TString;
-    timeout: Type.TOptional<Type.TNumber>;
+declare const bashSchema: import("@earendil-works/pi-schema").Schema<{
+    command: string;
+    timeout?: number | undefined;
 }>;
-declare const powershellSchema: Type.TObject<{
-    command: Type.TString;
-    timeout: Type.TOptional<Type.TNumber>;
+declare const powershellSchema: import("@earendil-works/pi-schema").Schema<{
+    command: string;
+    timeout?: number | undefined;
 }>;
 /** What a program that calls `bash` or `powershell` receives. */
-declare const shellStructuredOutputSchema: Type.TObject<{
-    output: Type.TString;
-    truncated: Type.TBoolean;
-    fullOutputPath: Type.TOptional<Type.TString>;
-    exitCode: Type.TNumber;
+declare const shellStructuredOutputSchema: import("@earendil-works/pi-schema").Schema<{
+    output: string;
+    truncated: boolean;
+    fullOutputPath?: string | undefined;
+    exitCode: number;
 }>;
 export type BashToolInput = Static<typeof bashSchema>;
 export type PowerShellToolInput = Static<typeof powershellSchema>;

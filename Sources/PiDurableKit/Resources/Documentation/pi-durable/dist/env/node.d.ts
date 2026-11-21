@@ -1,5 +1,5 @@
-import type { Context } from "@earendil-works/chord";
-import { type BinaryReader, type DirReader, type ExecutionEnv, ExecutionError, FileError, type FileInfo, type FileWatcher, type Result, type ShellExecOptions, type ShellExecResult, type TextLineReader, type WatchChange, type WatchTarget } from "./index.ts";
+import type { Context } from "@earendil-works/chord/context";
+import { type BinaryReader, type DirReader, type ExecutionEnv, ExecutionError, type FileChange, FileError, type FileInfo, type FileWatcher, type Result, type ShellExecOptions, type ShellExecResult, type TextLineReader, type WatchTarget } from "./index.ts";
 import { type NodeWatchOptions } from "./node-watch.ts";
 export declare class NodeExecutionEnv implements ExecutionEnv {
     /** Every local environment sees the same files. */
@@ -15,7 +15,7 @@ export declare class NodeExecutionEnv implements ExecutionEnv {
         shellEnv?: NodeJS.ProcessEnv;
         watch?: NodeWatchOptions;
     });
-    watch(targets: readonly WatchTarget[], onChange: (change: WatchChange) => void, context: Context): Promise<Result<FileWatcher, FileError>>;
+    watch(targets: readonly WatchTarget[], onChange: (change: FileChange) => void, context: Context): Promise<Result<FileWatcher, FileError>>;
     absolutePath(path: string, _context: Context): Promise<Result<string, FileError>>;
     joinPath(parts: string[], _context: Context): Promise<Result<string, FileError>>;
     exec(command: string | readonly string[], options: ShellExecOptions | undefined, context: Context): Promise<Result<ShellExecResult, ExecutionError>>;

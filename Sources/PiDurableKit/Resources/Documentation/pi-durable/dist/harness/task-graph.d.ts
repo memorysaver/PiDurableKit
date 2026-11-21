@@ -1,8 +1,10 @@
-import { type AttachedReplicatedState, type Context, type JsonValue } from "@earendil-works/chord";
+import { type Context } from "@earendil-works/chord/context";
+import type { JsonValue } from "@earendil-works/chord/json";
+import { type WatchHandle } from "@earendil-works/chord/watch";
 import { type SessionImpl } from "../session/session.ts";
-import type { ConversationId, JoinPolicy, Storage, TaskId, TaskOutcome, WatchHandle } from "../types.ts";
+import type { ConversationId, JoinPolicy, Observation, Observer, TaskId, TaskOutcome } from "../types.ts";
 import { type BlockedReason, type BlockedSubject } from "./scheduler.ts";
-/** A live task's durable status without its checkpoint and outcome payloads (spec §9.5). */
+/** A live task's durable status without its checkpoint and outcome payloads (spec §9.4). */
 export type TaskGraphState = {
     readonly status: "pending" | "running";
     readonly phase: string;
@@ -12,11 +14,15 @@ export type TaskGraphState = {
     readonly on: readonly TaskId[];
     readonly policy: JoinPolicy;
 }
-/** Asleep until the Harness clock reaches `until`. */
+/** Asleep until the Harness clock reaches `until`, or one of `signals` holds a value no wake used. */
  | {
     readonly status: "sleeping";
     readonly phase: string;
-    readonly until: number;
+    readonly until?: number;
+    readonly signals?: readonly {
+        readonly signal: string;
+        readonly key: string;
+    }[];
 }
 /** Outcome held until its ordinary owned work drains. */
  | {
@@ -34,13 +40,13 @@ export type TaskGraphNode = {
     readonly state: TaskGraphState;
     /**
      * Why it cannot run here, when it cannot: no registered definition takes it (`missing_task`, `task_too_old`,
-     * `migration_failed`), or the restart limit parked it (`restart_limit`). Follows registry changes.
+     * `migration_failed`). Follows registry changes.
      */
     readonly blocked?: BlockedReason;
     /** Conversations this task owns, in ID order. */
     readonly conversations: readonly ConversationId[];
 };
-/** Every live task of the Session (spec §9.5). */
+/** Every live task of the Session (spec §9.4). */
 export type TaskGraph = {
     /** Every live task, keyed by its decimal ID. */
     readonly tasks: Readonly<Record<string, TaskGraphNode>>;
@@ -57,9 +63,12 @@ export type TaskGraphBlocking = {
  */
 export declare class TaskGraphView {
     #private;
-    constructor(session: SessionImpl, storage: Storage, blocking: TaskGraphBlocking);
-    /** A disposable read-only Chord state of the graph. */
-    state(context: Context): Promise<AttachedReplicatedState<TaskGraph>>;
-    /** A serialized exact-frame watch of the graph; cancelling `context` stops it. */
+    constructor(session: SessionImpl, blocking: TaskGraphBlocking);
+    /**
+     * Attach a synchronous observer of the graph (`Harness.observeTaskGraph()`), behind `guardObserver()`; `context`
+     * governs only the attachment.
+     */
+    observe(observer: Observer<TaskGraph>, context: Context): Promise<Observation<TaskGraph>>;
+    /** A serialized watch of the graph, an observer of its mount; aborting `context` ends it `aborted`. */
     watch(context: Context): Promise<TaskGraphWatch>;
 }

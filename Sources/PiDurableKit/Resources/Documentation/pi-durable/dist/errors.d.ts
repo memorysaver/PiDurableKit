@@ -4,9 +4,13 @@ import type { ConversationId } from "./types.ts";
  * and code that formats an error must not fail for the value it formats.
  */
 export declare function errorMessage(error: unknown): string;
-/** A transaction read a table after its first table write. Read every required row before writing. */
+/**
+ * A transaction read a table after its first table write, or admitted a submission (`submit(tx, draft)`) after it. Read
+ * every required row, and admit, before writing.
+ */
 export declare class ReadAfterWrite extends Error {
-    constructor(method: string);
+    /** `operation` names the call, such as `Tx.task()`. */
+    constructor(operation: string);
 }
 /**
  * A Storage read rejected an invalid request, such as an unknown conversation or a cursor from another scan, with no
@@ -24,8 +28,20 @@ export declare class StorageRequestError extends Error {
 export declare class SessionFailed extends Error {
     constructor(cause: unknown);
 }
+/**
+ * The Harness was opened read-only (`HarnessOptions.readOnly`): a commit with writes, or a call that would run tasks, was
+ * refused. Nothing was written, and the Harness stays usable for reads.
+ */
+export declare class ReadOnlySession extends Error {
+    constructor(what: string);
+}
 /** A submission reached a busy conversation and was not admitted. */
 export declare class ConversationBusy extends Error {
+    readonly conversationId: ConversationId;
+    constructor(conversationId: ConversationId);
+}
+/** An input with `whenIdle: "reject"` reached an idle conversation and was not admitted. */
+export declare class ConversationIdle extends Error {
     readonly conversationId: ConversationId;
     constructor(conversationId: ConversationId);
 }

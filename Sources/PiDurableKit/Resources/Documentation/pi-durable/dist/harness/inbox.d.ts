@@ -1,4 +1,5 @@
-import { type Draft, type JsonRepresentation } from "@earendil-works/chord";
+import type { Draft } from "@earendil-works/chord/delta";
+import { type JsonRepresentation } from "@earendil-works/chord/json";
 import type { ConversationId, EntryDraft, EntryId, EntryRecord, JsonObject, SubmissionId, Tx } from "../types.ts";
 import type { InputEntry, QueueMode, Settings, UserInput } from "./types.ts";
 /** A queued submission: user input for a run, with the entry it is placed as when not `pi.user`, or an entry write. */
@@ -7,6 +8,8 @@ export type InboxItem = {
     mode: "steer" | "followUp";
     content: JsonRepresentation<UserInput>;
     entry?: JsonRepresentation<InputEntry>;
+    /** Submitted with `onAbort: "keep"`: an abort leaves it queued. */
+    onAbort?: "keep";
 }
 /** `entry` is an `EntryDraft`, stored as plain JSON. */
  | {
@@ -30,9 +33,13 @@ export type Boundary = {
     /** Start of the active range, the newest head marker's `head`; advanced by heads written in this commit. */
     head: EntryId | undefined;
 };
-/** Selected user items, in ID order, and whether a `head: "self"` write (a reset) was placed. */
+/**
+ * Selected user items, in ID order, the first entry the boundary placed, a write's or a user item's (a run it starts
+ * begins there, `LiveRun.first`), and whether a `head: "self"` write (a reset) was placed.
+ */
 export type BoundaryResult = {
     readonly users: SubmissionId[];
+    readonly first: EntryId | undefined;
     readonly reset: boolean;
 };
 /**
@@ -64,7 +71,13 @@ export declare function isStale(boundary: Boundary, entry: EntryDraft): boolean;
 /** Remove a withdrawn submission's item; the caller settles the submission. */
 export declare function removeInboxItem(tx: Tx, conversationId: ConversationId, id: SubmissionId): Promise<void>;
 /**
- * Withdraw every queued input of a conversation, as `Conversation.abort()` and abort cascades do: each settles
- * `unanswered` with `reason` (default `aborted`) and leaves the inbox; queued writes stay for later placement.
+ * Withdraw the queued inputs of a conversation as `Conversation.abort()` and abort cascades do: each settles
+ * `unanswered` with reason `aborted` and leaves the inbox, except those submitted with `onAbort: "keep"`; queued writes
+ * stay for later placement.
  */
-export declare function withdrawQueuedInputs(tx: Tx, conversationId: ConversationId, reason?: string): Promise<void>;
+export declare function withdrawAbortedInputs(tx: Tx, conversationId: ConversationId): Promise<void>;
+/**
+ * Withdraw every queued input of a conversation, as a failed run does under `afterFailedRun: "withdraw"`: each settles
+ * `unanswered` with `reason` and leaves the inbox; queued writes stay for later placement.
+ */
+export declare function withdrawQueuedInputs(tx: Tx, conversationId: ConversationId, reason: string): Promise<void>;

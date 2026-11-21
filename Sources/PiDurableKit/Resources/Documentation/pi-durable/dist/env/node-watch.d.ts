@@ -1,5 +1,5 @@
-import type { Context } from "@earendil-works/chord";
-import { type FileWatcher, type WatchChange, type WatchTarget } from "./index.ts";
+import type { Context } from "@earendil-works/chord/context";
+import { type FileChange, type FileWatcher, type WatchTarget } from "./index.ts";
 /** How `NodeExecutionEnv` watches. */
 export interface NodeWatchOptions {
     /**
@@ -22,7 +22,7 @@ export declare class NodeFileWatcher implements FileWatcher {
     #private;
     private constructor();
     /** Establish coverage: watchers first, then the snapshot later changes are compared with. */
-    static open(targets: readonly WatchTarget[], resolvePath: (path: string) => string, onChange: (change: WatchChange) => void, options: NodeWatchOptions): Promise<NodeFileWatcher>;
+    static open(targets: readonly WatchTarget[], resolvePath: (path: string) => string, onChange: (change: FileChange) => void, options: NodeWatchOptions): Promise<NodeFileWatcher>;
     get mode(): "native" | "polling";
-    close(_context: Context): Promise<void>;
+    stop(_context: Context): Promise<void>;
 }

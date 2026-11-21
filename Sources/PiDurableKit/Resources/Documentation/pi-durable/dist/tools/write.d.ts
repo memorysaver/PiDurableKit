@@ -1,8 +1,8 @@
-import { type Static, Type } from "typebox";
+import { type Static } from "@earendil-works/pi-schema";
 import type { ToolRegistration } from "../harness/types.ts";
-declare const writeSchema: Type.TObject<{
-    path: Type.TString;
-    content: Type.TString;
+declare const writeSchema: import("@earendil-works/pi-schema").Schema<{
+    path: string;
+    content: string;
 }>;
 export type WriteToolInput = Static<typeof writeSchema>;
 export declare function createWriteTool(): ToolRegistration<typeof writeSchema>;

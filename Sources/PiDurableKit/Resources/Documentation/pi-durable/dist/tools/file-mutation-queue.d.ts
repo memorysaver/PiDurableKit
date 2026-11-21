@@ -1,4 +1,4 @@
-import type { Context } from "@earendil-works/chord";
+import type { Context } from "@earendil-works/chord/context";
 import { type ExecutionEnv } from "../env/index.ts";
 /**
  * Serialize `edit` and `write` mutations of one file within this process: same file system id and canonical path,

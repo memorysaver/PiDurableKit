@@ -1,4 +1,4 @@
-import type { Context } from "@earendil-works/chord";
+import type { Context } from "@earendil-works/chord/context";
 import type { ConversationId, DocumentCopySource, DocumentCreate, EntryId, Storage } from "../types.ts";
 /** One definition-free document copy to create with a forked conversation. */
 export type ForkDocumentCopy = {

@@ -1,4 +1,4 @@
-import type { JsonValue } from "@earendil-works/chord";
+import type { JsonValue } from "@earendil-works/chord/json";
 import type { CompactionReason, ToolDiagnostic } from "./harness/types.ts";
 import type { Entry } from "./types.ts";
 /** Define a typed entry kind whose `is()` guard narrows by `EntryRecord.kind`. */

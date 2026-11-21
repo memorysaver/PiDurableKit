@@ -3,7 +3,7 @@ export declare const DURABLE_TELEMETRY_SCHEMA: {
     readonly version: 1;
     readonly spans: {
         readonly "pi.durable.submit": {
-            readonly description: "Public submission admission and its commit. Inputs start root traces linked to their callers; writes are children. Internal admissions emit phase events only.";
+            readonly description: "Public submission admission: with its commit for submit(draft, context); the admission only for submit(tx, draft), whose result is provisional (a later throw or storage failure of the caller's commit leaves no submission) and whose commit events go to the caller's commit context. Inputs and continues start root traces linked to their callers; writes are children. Internal admissions emit phase events only.";
             readonly parents: {
                 readonly kind: "any";
             };
@@ -11,7 +11,7 @@ export declare const DURABLE_TELEMETRY_SCHEMA: {
                 readonly "submission.type": {
                     readonly type: "string";
                     readonly required: true;
-                    readonly values: readonly ["input", "write"];
+                    readonly values: readonly ["input", "write", "continue"];
                     readonly description: "Submission type.";
                 };
                 readonly "conversation.id": {
@@ -79,14 +79,14 @@ export declare const DURABLE_TELEMETRY_SCHEMA: {
                         readonly type: {
                             readonly type: "string";
                             readonly required: true;
-                            readonly description: "ReportInfo type.";
-                            readonly values: readonly ["session_failed", "task_faulted", "task_parked", "migration_failed", "task_outdated", "task_error", "extension_error", "host_error", "listener_error"];
+                            readonly description: "Report kind (`Report.kind`).";
+                            readonly values: readonly ["storage_failed", "task_faulted", "task_interrupted", "migration_failed", "task_outdated", "task_error", "extension_error", "host_error", "listener_error"];
                         };
                         readonly reason: {
                             readonly type: "string";
                             readonly required: false;
                             readonly description: "Fixed report reason, when present.";
-                            readonly values: readonly ["threw", "restart_limit", "missing_task", "incompatible_task"];
+                            readonly values: readonly ["threw", "restart_limit", "interrupted", "missing_task", "task_too_old", "migration_failed"];
                         };
                         readonly extension: {
                             readonly type: "string";
@@ -207,14 +207,14 @@ export declare const DURABLE_TELEMETRY_SCHEMA: {
                         readonly type: {
                             readonly type: "string";
                             readonly required: true;
-                            readonly description: "ReportInfo type.";
-                            readonly values: readonly ["session_failed", "task_faulted", "task_parked", "migration_failed", "task_outdated", "task_error", "extension_error", "host_error", "listener_error"];
+                            readonly description: "Report kind (`Report.kind`).";
+                            readonly values: readonly ["storage_failed", "task_faulted", "task_interrupted", "migration_failed", "task_outdated", "task_error", "extension_error", "host_error", "listener_error"];
                         };
                         readonly reason: {
                             readonly type: "string";
                             readonly required: false;
                             readonly description: "Fixed report reason, when present.";
-                            readonly values: readonly ["threw", "restart_limit", "missing_task", "incompatible_task"];
+                            readonly values: readonly ["threw", "restart_limit", "interrupted", "missing_task", "task_too_old", "migration_failed"];
                         };
                         readonly extension: {
                             readonly type: "string";
@@ -259,13 +259,13 @@ export declare const DURABLE_TELEMETRY_SCHEMA: {
     readonly metrics: {
         readonly "pi.durable.reports": {
             readonly kind: "counter";
-            readonly description: "Reports raised, grouped by their fixed ReportInfo type.";
+            readonly description: "Reports raised, grouped by their fixed kind.";
             readonly attributes: {
                 type: {
                     readonly type: "string";
                     readonly required: true;
-                    readonly description: "ReportInfo type.";
-                    readonly values: readonly ["session_failed", "task_faulted", "task_parked", "migration_failed", "task_outdated", "task_error", "extension_error", "host_error", "listener_error"];
+                    readonly description: "Report kind (`Report.kind`).";
+                    readonly values: readonly ["storage_failed", "task_faulted", "task_interrupted", "migration_failed", "task_outdated", "task_error", "extension_error", "host_error", "listener_error"];
                 };
             };
         };

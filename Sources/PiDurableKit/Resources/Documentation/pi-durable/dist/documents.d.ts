@@ -1,5 +1,5 @@
-import { type JsonValue } from "@earendil-works/chord";
 import type { Op } from "@earendil-works/chord/delta";
+import { type JsonValue } from "@earendil-works/chord/json";
 import type { CheckpointInfo, CommonDocDefinition, ConversationDocFamilyToken, ConversationDocToken, DocumentAddress, DocumentCreate, DocumentId, DocumentRecord, DocumentSemantics, JsonObject, LatestConversationSemantics, RewindableConversationDocFamilyToken, RewindableConversationDocToken, RewindableConversationSemantics, SessionDocFamilyToken, SessionDocToken, StoredDocument, TaskDocFamilyToken, TaskDocToken } from "./types.ts";
 type FamilyInput<T extends JsonObject, I extends JsonValue> = Omit<CommonDocDefinition<T>, "initial"> & {
     readonly family: true;

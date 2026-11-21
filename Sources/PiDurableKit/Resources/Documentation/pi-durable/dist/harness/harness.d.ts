@@ -1,9 +1,11 @@
-import type { Context } from "@earendil-works/chord";
+import type { Context } from "@earendil-works/chord/context";
 import { type ClientIdentity } from "@earendil-works/pi-ai/utils/identity";
 import type { ReportInfo, Storage } from "../types.ts";
 import type { HarnessOptions, Harness as HarnessType, ToolRegistration } from "./types.ts";
 /** Key of the Harness's internal index-size getter, for tests. */
 export declare const SCHEDULER_INDEX_SIZES: unique symbol;
+/** Key of the Harness's internal idle-state getter (kept contexts against a full recompute), for tests. */
+export declare const SCHEDULER_IDLE_STATE: unique symbol;
 /** Request identity of a Harness's model requests: pi-ai's defaults with provider attribution to pi. */
 export declare const DEFAULT_HARNESS_IDENTITY: ClientIdentity;
 /**

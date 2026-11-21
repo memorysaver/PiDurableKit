@@ -1,5 +1,5 @@
-import type { Context } from "@earendil-works/chord";
-import type { Cursor, Page } from "../types.ts";
+import type { Context } from "@earendil-works/chord/context";
+import type { ConversationId, Cursor, EntryQuery, Page } from "../types.ts";
 /** Pending waits by key. Each settles once: through `resolve`, `rejectAll`, or cancellation of its context. */
 export declare class Waiters<K, T> {
     #private;
@@ -20,3 +20,5 @@ export declare function closedError(session: {
 export declare function optionalExtension(extension: string | undefined): {
     readonly extension?: string;
 };
+/** The scan of conversation `conversationId`'s history that `query` asks for, without fields an untyped caller added. */
+export declare function conversationEntries(conversationId: ConversationId, query: Omit<EntryQuery, "conversationId">): EntryQuery;

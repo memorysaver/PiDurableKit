@@ -34,12 +34,12 @@
  * or when the script diverges: it makes another call, or calls in another order, than the journal says. Each ends the
  * call with an error result.
  */
-import { type Context, type JsonValue } from "@earendil-works/chord";
-import { type CodemodeSandboxBase } from "@earendil-works/pi-codemode/portable";
-import { type Static, Type } from "typebox";
+import type { Context } from "@earendil-works/chord/context";
+import { type JsonValue } from "@earendil-works/chord/json";
+import type { CodemodeSandboxBase } from "@earendil-works/pi-codemode/portable";
+import { type Static } from "@earendil-works/pi-schema";
 import type { Extension, ToolExecutionApi, ToolRegistration } from "../harness/types.ts";
 import type { JsonObject } from "../types.ts";
-import { type CodemodeNamespace } from "./describe.ts";
 /**
  * Version of everything in this module that turns stored results into what a script sees: result mapping, globals,
  * start data. Bump it when that changes, so a call started before an upgrade is not replayed by different code.
@@ -69,7 +69,10 @@ type Start = {
     /** `startedAt + timeout_ms` when the script set one. */
     deadline?: number;
     tools: DeclaredTool[];
-    /** The namespaces of the tools, as `describeNamespace()` and `searchTools()` see them. */
+    /**
+     * The namespaces the selected extensions declare (`Extension.namespace`), with their tools, as `describeNamespace()`
+     * and `searchTools()` see them; a namespace without tools yet is listed too.
+     */
     namespaces: {
         name: string;
         description?: string;
@@ -147,15 +150,13 @@ export type CodemodeGlobal = {
     readonly spread?: boolean;
     execute(args: unknown, api: ToolExecutionApi, context: Context): Promise<JsonValue | undefined>;
 };
-declare const codemodeSchema: Type.TObject<{
-    code: Type.TString;
+declare const codemodeSchema: import("@earendil-works/pi-schema").Schema<{
+    code: string;
 }>;
 export type CodemodeToolInput = Static<typeof codemodeSchema>;
 export type CodemodeToolOptions = {
     /** Runs the scripts: `CodemodeSandbox` on Node, `RemoteCodemodeSandbox` on Cloudflare. */
     readonly sandbox: CodemodeSandboxBase;
-    /** Groups of tools by name prefix, such as MCP servers, for the `codemode` section and tool search. */
-    readonly namespaces?: readonly CodemodeNamespace[];
     /** Estimated tokens the tool declarations in the `codemode` section may use. Default 3000. */
     readonly inlineBudget?: number;
     /** Give scripts `models.*`: the model catalog, classifiers, and image generation. Default true. */

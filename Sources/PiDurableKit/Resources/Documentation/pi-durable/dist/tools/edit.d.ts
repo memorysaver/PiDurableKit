@@ -1,11 +1,11 @@
-import { type Static, Type } from "typebox";
+import { type Static } from "@earendil-works/pi-schema";
 import type { ToolRegistration } from "../harness/types.ts";
-declare const editSchema: Type.TObject<{
-    path: Type.TString;
-    edits: Type.TArray<Type.TObject<{
-        oldText: Type.TString;
-        newText: Type.TString;
-    }>>;
+declare const editSchema: import("@earendil-works/pi-schema").Schema<{
+    path: string;
+    edits: {
+        oldText: string;
+        newText: string;
+    }[];
 }>;
 export type EditToolInput = Static<typeof editSchema>;
 export type EditToolDetails = {

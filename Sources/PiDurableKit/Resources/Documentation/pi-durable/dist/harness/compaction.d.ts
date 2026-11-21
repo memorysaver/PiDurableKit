@@ -1,6 +1,6 @@
 import type { Message, ModelThinkingLevel } from "@earendil-works/pi-ai";
 import type { ConversationId, EntryId, TaskId, Tx } from "../types.ts";
-import type { CompactionHooks, CompactionPolicy, CompactionReason, CompactionResult, ContextView, ConversationStreamOptions, ModelRef, Settings } from "./types.ts";
+import type { CompactionHooks, CompactionPolicy, CompactionReason, CompactionResult, CompactionSettings, ContextView, ConversationStreamOptions, ModelRef, Settings } from "./types.ts";
 export type CompactionInput = {
     reason: CompactionReason;
     instructions?: string;
@@ -36,8 +36,13 @@ export declare const CompactionTask: import("../types.ts").Task<CompactionInput,
  * compaction); without one it is conversation-owned, and `background` unless it is manual.
  */
 export declare function createCompaction(tx: Tx, conversationId: ConversationId, input: CompactionInput, owner?: TaskId): Promise<TaskId<CompactionResult>>;
-/** The compaction policy for `model`: its `modelOverrides` entry over the harness-wide policy, field by field. */
-export declare function compactionPolicy(settings: Settings, model: ModelRef): CompactionPolicy;
+/**
+ * The compaction policy for `model` in a conversation, field by field: the conversation's `modelOverrides` entry, the
+ * harness's, the conversation's own fields, then the harness-wide policy. A model-specific value beats a general one,
+ * and the conversation beats the harness at the same level. The exception: the conversation's own `enabled: false` also
+ * beats the harness's model override, since turning compaction off for a conversation does not depend on the model.
+ */
+export declare function compactionPolicy(settings: Settings, model: ModelRef, conversation: CompactionSettings | undefined): CompactionPolicy;
 /**
  * Index in `view.entries` of the first entry a summary keeps, or `undefined` when there is nothing to compact
  * (spec §8.7). Walks back from the tail until `keepRecentTokens` are kept, then cuts at the first candidate at or after

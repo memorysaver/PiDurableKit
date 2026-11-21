@@ -1,20 +1,13 @@
 /**
  * What the model reads about code mode, copied from the coding agent's code mode: the tool's fixed description (the
  * script environment and its globals), and the `codemode` prompt section, which lists the tools scripts can call as
- * TypeScript declarations, grouped by namespace and limited to a token budget. Tools that do not fit are found with
- * `searchTools()`. The section renders from the conversation's callable tools, so it changes with them; the tool's
- * description never does.
+ * TypeScript declarations, grouped by the namespaces their extensions declare and limited to a token budget. Tools
+ * that do not fit, and deferred tools, are found with `searchTools()`. Every selected extension's namespace is listed
+ * (with its description) whether or not it has tools yet, so the section stays the same when an extension's deferred
+ * tools come and go (an MCP server connecting); the tool's description never changes.
  */
 import type { CodemodeJsonSchema } from "@earendil-works/pi-codemode";
-import type { ToolRegistration } from "../harness/types.ts";
-/** A group of tools named by a common prefix, such as an MCP server's `mcp__github__`. */
-export type CodemodeNamespace = {
-    readonly name: string;
-    readonly description?: string;
-    readonly instructions?: string;
-    /** Tool names starting with it belong to the namespace; the longest matching prefix wins. */
-    readonly prefix: string;
-};
+import type { Extension, ToolNamespace, ToolRegistration } from "../harness/types.ts";
 /** Default token budget of the tool declarations in the `codemode` section, as in the coding agent. */
 export declare const DEFAULT_CODEMODE_INLINE_BUDGET = 3000;
 /** The code mode tool's description: the script environment and its globals, the same for every conversation. */
@@ -28,10 +21,17 @@ export declare function declarationOf(tool: ToolRegistration): {
 };
 /** `toolSample` of a tool: its description and TypeScript declaration. */
 export declare function sampleOf(tool: ToolRegistration): string;
-/** The namespace of a tool: the one with the longest prefix its name starts with. */
-export declare function namespaceOf(name: string, namespaces: readonly CodemodeNamespace[]): CodemodeNamespace | undefined;
 /**
- * The `codemode` section: the tools scripts can call, grouped by namespace, with their declarations as far as the
- * budget allows. `undefined` without callable tools.
+ * The namespace of each tool the extensions bring, by tool name: its extension's `namespace`. A tool several
+ * extensions name belongs to the first one's (with none when the first declares none).
  */
-export declare function codemodeSection(tools: readonly ToolRegistration[], namespaces: readonly CodemodeNamespace[], budget: number): string | undefined;
+export declare function namespacesOf(extensions: readonly Extension[]): ReadonlyMap<string, ToolNamespace>;
+/** The namespaces the extensions declare, by name (the first declaration of a name wins), sorted by name. */
+export declare function declaredNamespaces(extensions: readonly Extension[]): readonly ToolNamespace[];
+/**
+ * The `codemode` section: the tools scripts can call (ungrouped ones first), then every namespace the selected
+ * `extensions` declare, by name, as `## <name>` and its description, each followed by its tools' declarations as far as
+ * the budget allows. Headers carry no counts, so the text changes only with the declared tools. `undefined` without
+ * callable tools and namespaces.
+ */
+export declare function codemodeSection(tools: readonly ToolRegistration[], extensions: readonly Extension[], budget: number): string | undefined;

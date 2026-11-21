@@ -1,3 +1,4 @@
+import type { Api, Model } from "@earendil-works/pi-ai";
 /** Limits an image the model sees must keep; the defaults below are the coding agent's. */
 export type ImageLimits = {
     /** Pixels. Default 2000. */
@@ -8,6 +9,8 @@ export type ImageLimits = {
     readonly maxBytes: number;
 };
 export declare const DEFAULT_IMAGE_LIMITS: ImageLimits;
+/** The limits of images sent to `model`: its `inputLimits.images.resize`, each absent one `DEFAULT_IMAGE_LIMITS`'s. */
+export declare function imageLimits(model: Model<Api> | undefined): ImageLimits;
 /** An image the model can take: a supported format, within the limits, as base64. */
 export type PreparedImage = {
     readonly data: string;
@@ -38,6 +41,8 @@ export type ImageProcessor = {
      */
     prepare(bytes: Uint8Array, mimeType: string, limits: ImageLimits): Promise<PreparedImage | undefined>;
 };
+/** What preparing changed, for the model: the format, and the size with the factor that maps coordinates back. */
+export declare function preparedNotes(image: PreparedImage): string[];
 /** Formats every provider takes inline; others, such as BMP, need converting. */
 export declare const INLINE_IMAGE_TYPES: ReadonlySet<string>;
 /**
@@ -45,5 +50,7 @@ export declare const INLINE_IMAGE_TYPES: ReadonlySet<string>;
  * call with megabytes of arguments overflows the stack.
  */
 export declare function toBase64(bytes: Uint8Array): string;
+/** The bytes of standard base64 `data`. */
+export declare function fromBase64(data: string): Uint8Array;
 /** The length of the base64 of `byteLength` bytes. */
 export declare function base64Length(byteLength: number): number;

@@ -1,5 +1,6 @@
-import type { Context, JsonValue } from "@earendil-works/chord";
-import type { ConversationId, ConversationQuery, ConversationRecord, Cursor, DocumentAddress, DocumentId, DocumentPoint, DocumentQuery, DocumentRecord, EntryId, EntryQuery, EntryRecord, Id, Page, Seq, Storage, StorageWrite, StoredDocument, SubmissionId, SubmissionQuery, SubmissionRecord, TaskId, TaskQuery, TaskRecord } from "../types.ts";
+import type { Context } from "@earendil-works/chord/context";
+import type { JsonValue } from "@earendil-works/chord/json";
+import type { CommitResult, ConversationId, ConversationQuery, ConversationRecord, Cursor, DocumentAddress, DocumentId, DocumentPoint, DocumentQuery, DocumentRecord, EntryId, EntryQuery, EntryRecord, Id, Page, Seq, Storage, StorageWrite, StoredDocument, SubmissionId, SubmissionQuery, SubmissionRecord, TaskId, TaskQuery, TaskRecord } from "../types.ts";
 type StoredTask = TaskRecord<JsonValue, JsonValue, JsonValue>;
 /** A fully validated, detached state mutation whose application performs no fallible preparation. */
 export interface PreparedMemoryCommit {
@@ -19,7 +20,12 @@ export declare class MemoryStorage implements Storage {
     private nextId;
     private nextSeq;
     private closed;
-    commit(writes: readonly StorageWrite[], _context: Context): Promise<Seq>;
+    /**
+     * Apply `batches` one by one, each checked against the state the earlier ones left (`prepareCommit()`, which only
+     * checks and detaches, so a batch it refuses changed nothing); stops at the first one refused. Memory is durable at
+     * once; the receipts follow the last batch.
+     */
+    commit(batches: readonly (readonly StorageWrite[])[], receive: (index: number, seq: Seq) => void, _context: Context): Promise<CommitResult>;
     /** Validate and detach one commit without changing observable state. */
     prepareCommit(writes: readonly StorageWrite[], seq?: Seq): PreparedMemoryCommit;
     private resolveDocumentCopies;
