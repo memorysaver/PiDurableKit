@@ -54,14 +54,14 @@ import Testing
     @Test func extensionsCanBoundOutputWithChord() async throws {
         let source = #"""
         const { defineExtension, defineTool } = require("@earendil-works/pi-durable");
-        const { Type } = require("@earendil-works/pi-ai");
+        const { obj, num, str } = require("@earendil-works/pi-schema");
         const { OutputBuffer, utf8ByteLength } = require("@earendil-works/chord/output");
         module.exports = defineExtension({
             name: "bounded",
             tools: [defineTool({
                 name: "bounded",
                 description: "Bounded output",
-                parameters: Type.Object({}),
+                parameters: obj({}),
                 execute: async () => ({
                     output: [{ type: "text", text: `${typeof OutputBuffer} ${utf8ByteLength("héllo")}` }],
                 }),

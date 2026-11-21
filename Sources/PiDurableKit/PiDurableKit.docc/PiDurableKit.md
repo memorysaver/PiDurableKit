@@ -107,7 +107,7 @@ if case .done(_, let answer?) = settled.status {
 ### Observing
 
 - ``ConversationView``
-- ``AgentEventStream``
+- ``RunFailure``
 - ``CommitPublication``
 - ``LiveState``
 - ``HarnessInspection``

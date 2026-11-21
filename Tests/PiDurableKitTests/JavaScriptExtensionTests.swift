@@ -5,7 +5,7 @@ import Testing
 /// A pi-durable extension as a Node app would write it: a tool with a TypeBox schema, a section, and a hook.
 let diceSource = #"""
 const { defineExtension, defineTool, section, hook, ToolTask } = require("@earendil-works/pi-durable");
-const { Type } = require("@earendil-works/pi-ai");
+const { obj, num, str } = require("@earendil-works/pi-schema");
 
 module.exports = defineExtension({
     name: "dice",
@@ -13,7 +13,7 @@ module.exports = defineExtension({
         defineTool({
             name: "roll",
             description: "Roll a die with the given number of sides",
-            parameters: Type.Object({ sides: Type.Number() }),
+            parameters: obj({ sides: num() }),
             execute: async (args, api) => {
                 api.output("rolling\n");
                 return { output: [{ type: "text", text: `rolled a d${args.sides}: ${args.sides}` }], details: { sides: args.sides } };
@@ -22,7 +22,7 @@ module.exports = defineExtension({
         defineTool({
             name: "inspect_globals",
             description: "Report what the extension can see",
-            parameters: Type.Object({}),
+            parameters: obj({}),
             execute: async () => ({
                 output: [{ type: "text", text: [typeof __native, typeof __bridge, typeof __runtime, typeof fetch].join(" ") }],
             }),
@@ -60,13 +60,13 @@ module.exports = defineExtension({
     @Test func timersAcceptDelaysNodeAccepts() async throws {
         let source = #"""
         const { defineExtension, defineTool } = require("@earendil-works/pi-durable");
-        const { Type } = require("@earendil-works/pi-ai");
+        const { obj, num, str } = require("@earendil-works/pi-schema");
         module.exports = defineExtension({
             name: "timers",
             tools: [defineTool({
                 name: "arm",
                 description: "Arm timers with extreme delays",
-                parameters: Type.Object({}),
+                parameters: obj({}),
                 execute: async () => {
                     for (const delay of [Infinity, NaN, -1, 1e300]) clearTimeout(setTimeout(() => {}, delay));
                     return { output: [{ type: "text", text: "armed" }] };
@@ -88,13 +88,13 @@ module.exports = defineExtension({
         // Node runs a timer whose delay isn't 1 to 2³¹−1 ms after 1 ms, Infinity included.
         let source = #"""
         const { defineExtension, defineTool } = require("@earendil-works/pi-durable");
-        const { Type } = require("@earendil-works/pi-ai");
+        const { obj, num, str } = require("@earendil-works/pi-schema");
         module.exports = defineExtension({
             name: "timers",
             tools: [defineTool({
                 name: "wait",
                 description: "Wait for timers with out-of-range delays",
-                parameters: Type.Object({}),
+                parameters: obj({}),
                 execute: async () => {
                     await Promise.all([Infinity, NaN, -1, 1e300].map((delay) => new Promise((resolve) => setTimeout(resolve, delay))));
                     return { output: [{ type: "text", text: "fired" }] };

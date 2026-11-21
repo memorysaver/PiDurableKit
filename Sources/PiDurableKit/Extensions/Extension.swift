@@ -24,14 +24,17 @@ public struct Extension: Sendable, Identifiable {
     public var wraps: [Wrap]
     /// Durable task types, resolved by name for every task whatever the conversation selects.
     public var tasks: [AnyTaskType]
+    /// The code mode namespace of this extension's tools (pi-durable `Extension.namespace`).
+    public var namespace: ToolNamespace?
     let builtin: Builtin?
     let javaScript: (source: String, sourceURL: URL?)?
 
     public init(
-        _ name: String, tools: [Tool] = [], sections: [PromptSection] = [], hooks: [Hook] = [], wraps: [Wrap] = [],
-        tasks: [AnyTaskType] = []
+        _ name: String, namespace: ToolNamespace? = nil, tools: [Tool] = [], sections: [PromptSection] = [], hooks: [Hook] = [],
+        wraps: [Wrap] = [], tasks: [AnyTaskType] = []
     ) {
         self.name = name
+        self.namespace = namespace
         self.tools = tools
         self.sections = sections
         self.hooks = hooks
@@ -41,8 +44,8 @@ public struct Extension: Sendable, Identifiable {
         self.javaScript = nil
     }
 
-    public init(_ name: String, @ExtensionBuilder _ content: () -> [ExtensionComponent]) {
-        self.init(name)
+    public init(_ name: String, namespace: ToolNamespace? = nil, @ExtensionBuilder _ content: () -> [ExtensionComponent]) {
+        self.init(name, namespace: namespace)
         for component in content() {
             switch component {
             case .tool(let tool): tools.append(tool)
@@ -73,6 +76,7 @@ public struct Extension: Sendable, Identifiable {
         self.hooks = []
         self.wraps = []
         self.tasks = []
+        self.namespace = nil
         self.builtin = builtin
         self.javaScript = nil
     }
@@ -82,17 +86,17 @@ public struct Extension: Sendable, Identifiable {
     /// `source` is a CommonJS module whose `module.exports` is a pi-durable extension. It can `require`
     /// `@earendil-works/pi-durable`, `@earendil-works/pi-durable/tools`, `@earendil-works/pi-durable/env`,
     /// `@earendil-works/pi-durable/tool-search`, `@earendil-works/pi-durable/codemode`,
-    /// `@earendil-works/pi-codemode/portable`, `@earendil-works/pi-ai`, `@earendil-works/chord/context`, and
-    /// `@earendil-works/chord/output`:
+    /// `@earendil-works/pi-codemode/portable`, `@earendil-works/pi-ai`, `@earendil-works/pi-schema` (tool schemas, since
+    /// pi-durable 1.5), `@earendil-works/chord/context`, and `@earendil-works/chord/output`:
     ///
     /// ```js
     /// const { defineExtension, defineTool } = require("@earendil-works/pi-durable");
-    /// const { Type } = require("@earendil-works/pi-ai");
+    /// const { obj, num } = require("@earendil-works/pi-schema");
     ///
     /// module.exports = defineExtension({
     ///     name: "dice",
     ///     tools: [defineTool({
-    ///         name: "roll", description: "Roll a die", parameters: Type.Object({ sides: Type.Number() }),
+    ///         name: "roll", description: "Roll a die", parameters: obj({ sides: num() }),
     ///         execute: async (args) => ({ output: [{ type: "text", text: String(1 + Math.floor(Math.random() * args.sides)) }] }),
     ///     })],
     /// });
@@ -107,6 +111,7 @@ public struct Extension: Sendable, Identifiable {
         self.hooks = []
         self.wraps = []
         self.tasks = []
+        self.namespace = nil
         self.builtin = nil
         self.javaScript = (source, sourceURL)
     }
@@ -169,7 +174,7 @@ public struct Extension: Sendable, Identifiable {
         case .codemode(let options)?:
             return [
                 "name": name, "builtin": "codemode", "wasmPath": CodemodeOptions.quickJSPath,
-                "namespaces": options.namespaces.isEmpty ? nil : options.namespaces, "inlineBudget": options.inlineBudget,
+                "inlineBudget": options.inlineBudget,
                 "models": options.models, "interruptBudget": options.interruptBudget,
                 "memoryLimitBytes": options.memoryLimitBytes,
             ]
@@ -189,6 +194,7 @@ public struct Extension: Sendable, Identifiable {
         }
         return [
             "name": name,
+            "namespace": namespace,
             "tools": tools.map(\.specification),
             "sections": sections.map(\.specification),
             "hooks": hookFlags,
@@ -615,25 +621,24 @@ public struct BashExecution: Codable, Sendable, Hashable {
     public var inheritEnv: Bool
 }
 
-/// Options of ``Extension/codemode(name:_:)`` (pi-durable `CodemodeToolOptions`).
-public struct CodemodeOptions: Sendable {
-    /// A group of tools by name prefix, such as an MCP server's, for the `codemode` section and tool search.
-    public struct Namespace: Encodable, Sendable, Hashable {
-        public var name: String
-        /// Tool names starting with it belong to the namespace; the longest matching prefix wins.
-        public var prefix: String
-        public var description: String?
-        public var instructions: String?
+/// The code mode namespace of an extension's tools (pi-durable `ToolNamespace`, since 1.6): the `codemode` section
+/// lists it as `## <name>` with its one-line `description`; `describeNamespace()` returns its `instructions`, and
+/// `searchTools()` searches both. A tool several extensions name belongs to the first one's namespace.
+public struct ToolNamespace: Encodable, Sendable, Hashable {
+    public var name: String
+    public var description: String
+    public var instructions: String?
 
-        public init(_ name: String, prefix: String, description: String? = nil, instructions: String? = nil) {
-            self.name = name
-            self.prefix = prefix
-            self.description = description
-            self.instructions = instructions
-        }
+    public init(_ name: String, description: String, instructions: String? = nil) {
+        self.name = name
+        self.description = description
+        self.instructions = instructions
     }
+}
 
-    public var namespaces: [Namespace]
+/// Options of ``Extension/codemode(name:_:)`` (pi-durable `CodemodeToolOptions`). Namespaces moved to the extensions
+/// that bring the tools in pi-durable 1.6: see ``Extension/namespace``.
+public struct CodemodeOptions: Sendable {
     /// Estimated tokens the tool declarations in the `codemode` section may use; default 3000.
     public var inlineBudget: Int?
     /// Give scripts `models.*`: the model catalog, classifiers, and image generation; default `true`.
@@ -649,10 +654,8 @@ public struct CodemodeOptions: Sendable {
     public var memoryLimitBytes: Int?
 
     public init(
-        namespaces: [Namespace] = [], inlineBudget: Int? = nil, models: Bool? = nil, interruptBudget: Int? = nil,
-        memoryLimitBytes: Int? = nil
+        inlineBudget: Int? = nil, models: Bool? = nil, interruptBudget: Int? = nil, memoryLimitBytes: Int? = nil
     ) {
-        self.namespaces = namespaces
         self.inlineBudget = inlineBudget
         self.models = models
         self.interruptBudget = interruptBudget

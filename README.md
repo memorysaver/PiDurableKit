@@ -73,8 +73,7 @@ The Swift API mirrors pi-durable's, with Swift concurrency in place of Chord con
 | `TaskOptions.abandonOnRestart` | `tx.createTask(…, abandonOnRestart: true)`, `call.createTask(…, abandonOnRestart:)` |
 | `submit({ type: "input", content, entry: { kind, data } })` | `conversation.submit("…", entry: InputEntry(kind:data:))` |
 | `registry.snapshot()`, `resolveSettings()`, `DEFAULT_*_POLICY` | `harness.registry()`, `harness.resolvedSettings()`, `Runtime.defaultSettings()` |
-| `conversation.watch()` / `viewState()` | `conversation.changes()` / `conversation.views()`, `conversation.view()` |
-| `watchEvents(harness, id)` → `snapshot`, `start(listener)` | `harness.watchEvents(id)` → `snapshot`, `for try await events in stream` |
+| `conversation.watch()` | `conversation.changes()` / `conversation.views()`, `conversation.view()` |
 | `defineDoc`, `defineDocFamily` + `tx.doc()` | `Document(…, scope:, history:, keyed:, migrate:)`, `update(_:_:)`, `values(of:)` |
 | `defineEntry` | `EntryType`, `conversation.write(_:_:)`, `entry.data(as:)` |
 | `UserEntry`, `AssistantEntry`, `ToolResultEntry`, `CompactionEntry`, … | `EntryType.user`, `.assistant`, `.toolResult`, `.compaction`, …, `entry.is(_:)` |
@@ -107,7 +106,7 @@ The Swift API mirrors pi-durable's, with Swift concurrency in place of Chord con
 | `HarnessOptions.models` / `settings` as functions | `harness.replaceModels(_:)`, `harness.updateSettings(_:)` |
 | `settings.afterFailedRun`, `restartLimit`, `compaction.modelOverrides` | `Settings(afterFailedRun:restartLimit:)`, `Settings.Compaction(modelOverrides:)` |
 | `runtime.sleepUntil()`, `{ status: "sleeping" }`, `runtime.setTimer()`, `runtime.report(error, from)` | `run.sleep(until:then:)`, `NextState.sleeping(_:until:)`, `run.timer(after:_:)`, `run.report(_:from:)` |
-| `TaskRecord.restarts`, `harness.retryTask()`, blocked `restart_limit` | `TaskRecord.restarts`, `harness.retryTask(_:)`, `BlockedReason.restartLimit` |
+| `TaskRecord.restarts`, `pi.live.runFailure`, `onReport` `task_interrupted` | `TaskRecord.restarts`, `LiveState.runFailure`, `HarnessReport.Kind.taskInterrupted` |
 | `ToolExecutionApi.now()` | `ToolCallContext.now()` |
 | `JsonlStorage`, `models.refresh()`, `models.getAuth()` | `Storage.jsonl(at:)` / `.jsonl(in:directory:)`, `models.refresh()`, `models.isConfigured(_:)` |
 
@@ -294,9 +293,10 @@ A task waits for time by ending its phase asleep: `try await run.sleep(until: da
 `.sleeping(checkpoint, until:)` from a commit. A sleeping task holds no invocation and survives restarts; once the harness
 clock reaches the date, it continues in the checkpoint's phase. `run.timer(after:_:)` paces work inside a phase.
 
-A task that crashes cut off five times in a row without committing a new state is parked rather than run again
-(`Settings(restartLimit:)`): `inspect()` shows it blocked with `.restartLimit`, `onReport` gets `.taskParked`, and
-`harness.retryTask(_:)` runs it again.
+A task that crashes cut off five times in a row without committing a new state ends rather than runs again
+(`Settings(restartLimit:)`): a tool call with an error result, a run with `LiveState.runFailure` reason
+`.restartLimit`, a task of your own type faulted with detail `{ "reason": "restart_limit" }`. `onReport` gets
+`.taskFaulted` or `.taskInterrupted`. To run the work again, submit it again.
 
 ### More hooks and wraps
 
@@ -401,15 +401,10 @@ struct ChatView: View {
 }
 ```
 
-`views()` buffers only the newest view, so a busy UI skips intermediate states. For fine-grained deltas (text appends, tool output), use agent events:
-
-```swift
-let stream = try await harness.watchEvents(conversation.id)
-initialize(stream.snapshot)
-for try await events in stream {          // one batch per commit
-    for event in events { apply(event) }
-}
-```
+`views()` buffers only the newest view, so a busy UI skips intermediate states. Everything a renderer draws is in the
+view: the streamed answer (`view.streamingMessage`), tool slots and their output (`view.live.tools`), and why the last
+run ended without an answer (`view.live.runFailure`). For the exact operations behind each view (text appends, tool
+output), use `conversation.changes()`.
 
 ## Busy conversations
 
@@ -445,7 +440,7 @@ sleep. With `Harness.open(onWake:)`, the harness arms no timer for sleeping task
 schedule a background task and call `harness.resume()` when it runs. `Harness.open(timer:)` arms the harness's other
 timers, for example with `HarnessTimer.dispatch(declineBackground: true)` in a process that should be free to suspend.
 
-`onReport` gets a `HarnessReport`: the message, and what it was about (`.sessionFailed`, `.taskFaulted`, `.taskParked`,
+`onReport` gets a `HarnessReport`: the message, and what it was about (`.sessionFailed`, `.taskFaulted`, `.taskInterrupted`,
 `.extensionError`, `.hostError`, …), with the task and extension when known.
 
 `Harness.open(telemetry:)` records content-free spans, events, and metrics (submissions, task phases, entries, model

@@ -11,11 +11,11 @@ extension, and installs it like any other. The module can `require` `@earendil-w
 
 ```js
 const { defineExtension, defineTool } = require("@earendil-works/pi-durable");
-const { Type } = require("@earendil-works/pi-ai");
+const { obj, num } = require("@earendil-works/pi-schema");
 module.exports = defineExtension({
   name: "dice",
   tools: [defineTool({
-    name: "roll", description: "Roll a die", parameters: Type.Object({ sides: Type.Number() }),
+    name: "roll", description: "Roll a die", parameters: obj({ sides: num() }),
     execute: async (args) => ({ output: [{ type: "text", text: String(1 + Math.floor(Math.random() * args.sides)) }] }),
   })],
 });

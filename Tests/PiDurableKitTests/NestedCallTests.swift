@@ -5,11 +5,11 @@ import Testing
 /// A JavaScript tool, to call from a Swift one.
 private let shoutSource = """
     const { defineExtension, defineTool } = require("@earendil-works/pi-durable");
-    const { Type } = require("@earendil-works/pi-ai");
+    const { obj, num, str } = require("@earendil-works/pi-schema");
     module.exports = defineExtension({
         name: "shout",
         tools: [defineTool({
-            name: "shout", description: "Shout a word", parameters: Type.Object({ word: Type.String() }),
+            name: "shout", description: "Shout a word", parameters: obj({ word: str() }),
             execute: async (args) => ({ output: [{ type: "text", text: args.word.toUpperCase() + "!" }] }),
         })],
     });

@@ -48,4 +48,4 @@ retried submission return the existing one instead of submitting twice.
 }
 ```
 
-For coding-agent style deltas, use ``Harness/watchEvents(_:)``.
+For the exact operations behind each view, for example to replicate it elsewhere, use ``Conversation/changes()``.

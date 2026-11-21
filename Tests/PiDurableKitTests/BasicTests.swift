@@ -35,7 +35,7 @@ import Testing
 @Suite struct NoticesTests {
     @Test func noticesCoverTheBundledPackages() {
         let notices = PiDurable.thirdPartyNotices
-        for package in ["@earendil-works/pi-durable@\(PiDurable.version)", "@earendil-works/pi-ai@", "openai@", "@anthropic-ai/sdk@", "@google/genai@", "typebox@"] {
+        for package in ["@earendil-works/pi-durable@\(PiDurable.version)", "@earendil-works/pi-ai@", "openai@", "@anthropic-ai/sdk@", "@google/genai@", "@earendil-works/pi-schema@"] {
             #expect(notices.contains(package), "\(package)")
         }
         #expect(notices.contains("Apache License"))
