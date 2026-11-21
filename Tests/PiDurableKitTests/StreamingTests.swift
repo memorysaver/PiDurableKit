@@ -3,48 +3,38 @@ import Testing
 @testable import PiDurableKit
 
 @Suite struct StreamingTests {
-    @Test func eventsDescribeARun() async throws {
+    /// pi-durable 1.5 removed `watchEvents()`: a run is rendered from the views, whose `pi.live` carries what the events
+    /// did (the run, the streamed answer, tool slots).
+    @Test func viewsDescribeARun() async throws {
         let setup = try await FauxSetup.make(extensions: [Extension("weather", tools: [weatherTool])])
         try await setup.faux.append(.toolCall("get_weather", ["city": "Paris"]))
         try await setup.faux.append(.text("It is sunny in Paris today."))
         let root = try await setup.root()
 
-        let stream = try await setup.harness.watchEvents(root.id)
-        #expect(stream.snapshot.entries.isEmpty)
+        let changes = root.changes()
+        let attached = Mutex(false)
         let collector = Task { try await withTimeout {
-            var batches: [[AgentEvent]] = []
-            for try await batch in stream {
-                batches.append(batch)
-                if batch.contains(where: { if case .runEnd = $0 { true } else { false } }) { break }
+            var views: [ConversationView] = []
+            for try await change in changes {
+                views.append(change.view)
+                attached.set(true)
+                if !change.view.isBusy, change.view.entries.contains(where: { $0.assistantMessage?.text == "It is sunny in Paris today." }) {
+                    break
+                }
             }
-            return batches
+            return views
         } }
+        try await eventually { attached.get() }
         try await root.submit("Weather?")
-        let batches = try await collector.value
-        // One batch per commit.
-        #expect(batches.count > 1)
-        let events = batches.flatMap { $0 }
-        #expect(events.contains { if case .runStart = $0 { true } else { false } })
-        #expect(events.contains {
-            if case .toolExecutionStart(let call, let args) = $0 { call.toolName == "get_weather" && args["city"] == "Paris" } else { false }
-        })
-        #expect(events.contains {
-            if case .toolExecutionEnd(let call, let entry?, nil) = $0 { call.toolName == "get_weather" && call.taskId != nil && entry.kind == .toolResult } else { false }
-        })
-
-        var streamed = ""
-        for event in events {
-            guard case .messageUpdate(let changes, _) = event else { continue }
-            for change in changes {
-                if case .textDelta(_, let delta) = change { streamed += delta }
-            }
-        }
-        let final = events.compactMap { event -> AssistantMessage? in
-            if case .messageEnd(let entry) = event { return entry.assistantMessage }
-            return nil
-        }.last
-        #expect(final?.text == "It is sunny in Paris today.")
-        #expect(streamed.isEmpty || "It is sunny in Paris today.".hasPrefix(streamed) || streamed.hasSuffix("today."))
+        let views = try await collector.value
+        #expect(views.first?.entries.isEmpty == true)
+        #expect(views.count > 2)
+        #expect(views.contains { $0.isBusy })
+        #expect(views.contains { view in view.live.tools.contains { $0.name == "get_weather" } })
+        #expect(views.contains { view in view.live.tools.contains { $0.name == "get_weather" && $0.status == .done && $0.entry != nil } })
+        let final = try #require(views.last)
+        #expect(final.entries.contains { $0.kind == .toolResult })
+        #expect(final.live.runFailure == nil)
     }
 
     /// `views()` receives only appended entries after the first view; a reset replaces the transcript, and every view

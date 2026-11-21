@@ -4,7 +4,9 @@ import Foundation
 /// change produces a new view; see ``Conversation/views()``.
 public struct ConversationView: Decodable, Sendable, Hashable {
     public let conversation: ConversationRecord
-    /// The active transcript: the head marker (if any), then every entry from its head onward.
+    /// The active transcript: the head marker (if any), then every entry from its head onward. PiDurableKit derives it
+    /// from pi-durable's view window over the fork-aware history, which since pi-durable 1.5 keeps entries before a
+    /// head marker and places markers where they were written.
     public let entries: [Entry]
     /// The running generation and tool calls (`pi.live`).
     public let live: LiveState
@@ -61,6 +63,17 @@ public struct LiveState: Decodable, Sendable, Hashable {
         /// The task that settles the run's inputs.
         public let taskId: TaskID
         public let inputs: [SubmissionID]
+        /// Tool rounds so far.
+        public let turns: Int
+
+        private enum CodingKeys: String, CodingKey { case taskId, inputs, turns }
+
+        public init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            taskId = try container.decode(TaskID.self, forKey: .taskId)
+            inputs = try container.decodeIfPresent([SubmissionID].self, forKey: .inputs) ?? []
+            turns = Int(try container.decodeIfPresent(Double.self, forKey: .turns) ?? 0)
+        }
     }
 
     public typealias Generation = GenerationStatus
@@ -124,6 +137,8 @@ public struct LiveState: Decodable, Sendable, Hashable {
     public let compactions: [Compaction]
     /// The newest compaction failure since a compaction last produced a summary.
     public let compactionFailure: CompactionFailure?
+    /// Why the newest run ended without an answer; kept until a later run starts.
+    public let runFailure: RunFailure?
 
     init() {
         run = nil
@@ -132,9 +147,10 @@ public struct LiveState: Decodable, Sendable, Hashable {
         nestedTools = []
         compactions = []
         compactionFailure = nil
+        runFailure = nil
     }
 
-    private enum CodingKeys: String, CodingKey { case run, generation, tools, nestedTools, compactions, compactionFailure }
+    private enum CodingKeys: String, CodingKey { case run, generation, tools, nestedTools, compactions, compactionFailure, runFailure }
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -144,6 +160,7 @@ public struct LiveState: Decodable, Sendable, Hashable {
         nestedTools = (try? container.decodeIfPresent([NestedToolSlot].self, forKey: .nestedTools)) ?? []
         compactions = (try? container.decodeIfPresent([Compaction].self, forKey: .compactions)) ?? []
         compactionFailure = try? container.decodeIfPresent(CompactionFailure.self, forKey: .compactionFailure)
+        runFailure = try? container.decodeIfPresent(RunFailure.self, forKey: .runFailure)
     }
 }
 

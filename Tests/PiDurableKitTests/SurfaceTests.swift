@@ -11,7 +11,7 @@ import Testing
                 "callId": "c1", "name": "bash", "status": "running", "output": "tail", "droppedBytes": 10, "droppedLines": 2,
                 "diagnostics": [["severity": "warn", "message": "truncated", "code": "trunc"]],
             ]],
-            "compactions": [["taskId": 7, "reason": "threshold", "blocking": true, "attempt": 1, "retry": ["at": 3000, "error": "x"]]],
+            "compactions": [["taskId": 7, "trigger": "threshold", "blocking": true, "attempt": 1, "retry": ["at": 3000, "error": "x"]]],
         ]
         let live = try json.decode(as: LiveState.self)
         #expect(live.generation?.attempt == 2)
@@ -24,33 +24,17 @@ import Testing
         #expect(live.compactions[0].retry?.at == Date(timeIntervalSince1970: 3))
     }
 
-    @Test func agentEventsKeepEveryField() throws {
-        let snapshot = try ([
-            "type": "snapshot", "entries": [], "tools": [], "inbox": [["id": 3, "mode": "steer"]], "agent": [:],
-            "usage": ["models": [:], "tools": [:]],
-            "generation": ["attempt": 1, "retry": ["at": 5000, "error": "rate limited"]],
-            "compactions": [["taskId": 9, "reason": "manual", "blocking": false, "attempt": 0]],
-        ] as JSONValue).decode(as: AgentEvent.self)
-        guard case .snapshot(let value) = snapshot else {
-            Issue.record("Expected a snapshot, got \(snapshot)")
-            return
-        }
-        #expect(value.generation?.retry?.error == "rate limited")
-        #expect(value.compactions.map(\.taskId) == [9])
-        #expect(value.inbox.first?.mode == .steer)
-
-        let update = try ([
-            "type": "tool_execution_update", "toolCallId": "c", "toolName": "t",
-            "diagnostics": [["severity": "info", "message": "spilled"]],
-        ] as JSONValue).decode(as: AgentEvent.self)
-        guard case .toolExecutionUpdate(_, _, _, let diagnostics) = update else {
-            Issue.record("Expected a tool update, got \(update)")
-            return
-        }
-        #expect(diagnostics?.first?.message == "spilled")
-
-        let poll = try (["type": "deferred_poll", "pollAt": 4000] as JSONValue).decode(as: AgentEvent.self)
-        #expect(poll == .deferredPoll(pollAt: Date(timeIntervalSince1970: 4)))
+    @Test func liveStateKeepsRunFailures() throws {
+        let json: JSONValue = [
+            "runFailure": ["taskId": 4, "inputs": [5], "reason": "no_model", "detail": "faux/missing"],
+            "compactionFailure": ["taskId": 6, "trigger": "overflow", "error": "too long"],
+        ]
+        let live = try json.decode(as: LiveState.self)
+        #expect(live.runFailure?.reason == .noModel)
+        #expect(live.runFailure?.inputs == [5])
+        #expect(live.runFailure?.detail == "faux/missing")
+        #expect(live.compactionFailure?.reason == .overflow)
+        #expect(live.compactionFailure?.error == "too long")
     }
 
     @Test func inspectionStates() throws {
@@ -61,12 +45,12 @@ import Testing
         let inspection = try ([
             "scheduling": "paused", "submissions": [],
             "tasks": [
-                ["record": record, "state": ["kind": "ready", "migrates": true]],
+                ["record": record, "state": ["kind": "pending", "migrates": true]],
                 ["record": record, "state": ["kind": "blocked", "reason": "migration_failed", "error": ["message": "bad"]]],
             ],
         ] as JSONValue).decode(as: HarnessInspection.self)
         #expect(inspection.scheduling == .paused)
-        #expect(inspection.tasks[0].state == .ready(migrates: true))
+        #expect(inspection.tasks[0].state == .pending(migrates: true))
         #expect(inspection.tasks[1].state == .blocked(reason: "migration_failed", error: "bad"))
         #expect(inspection.tasks[1].blockedReason == "migration_failed")
     }

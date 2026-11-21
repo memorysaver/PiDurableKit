@@ -233,7 +233,7 @@ public final class Harness: Sendable {
     ///     whenever ``wake()`` changes. With it, the harness arms no timer for sleeping tasks; the app schedules its own
     ///     wakeup, such as a background task, and calls ``resume()`` then.
     ///   - onReport: Receives failures that do not fail the calling operation, such as a throwing hook, a task that
-    ///     faulted or was parked, or the error that fails the harness, with what each was about.
+    ///     faulted or was interrupted by crashes, or the error that fails the harness, with what each was about.
     ///   - identity: How this harness's model requests identify the app, over the runtime's ``Runtime/Client``
     ///     identity; it also applies to models tools and hooks call through ``ToolCallContext/models``.
     ///   - telemetry: Records the harness's content-free spans, events, and metrics; it must use the same runtime.
@@ -383,25 +383,6 @@ public final class Harness: Sendable {
         }
     }
 
-    /// Attaches to one conversation's agent events (pi-durable `watchEvents`): ``AgentEventStream/snapshot`` is the
-    /// state at attachment, and iterating yields one batch of events per later commit.
-    ///
-    /// ```swift
-    /// let stream = try await harness.watchEvents(root.id)
-    /// initialize(stream.snapshot)
-    /// for try await events in stream {
-    ///     for event in events { print(event) }
-    /// }
-    /// ```
-    public func watchEvents(_ conversation: ConversationID) async throws -> AgentEventStream {
-        let batches = engine.stream("conversation.events", ["harness": id, "conversation": conversation], of: [AgentEvent].self)
-        var iterator = batches.makeAsyncIterator()
-        guard case .snapshot(let snapshot)? = try await iterator.next()?.first else {
-            throw PiDurableError.runtime("The event stream did not start with a snapshot")
-        }
-        return AgentEventStream(snapshot: snapshot, iterator: iterator)
-    }
-
     /// Reacquires a submission, for example to wait for it after a restart; `nil` when there is none with this ID.
     public func submission(_ id: SubmissionID) async throws -> Submission? {
         let record: SubmissionRecord? = try await call("submission.status", ["submission": id])
@@ -517,25 +498,25 @@ public final class Harness: Sendable {
         case terminal
     }
 
-    /// Runs a task the restart limit parked (``Settings/restartLimit``) again: clears its restart count and starts
-    /// scheduling. Does nothing for a task that isn't parked; throws for an unknown one.
-    public func retryTask(_ id: TaskID) async throws {
-        try await perform("harness.retryTask", ["task": id])
-    }
-
     /// Aborts one task and the work it owns. A task no installed definition can take settles as orphaned.
     @discardableResult
     public func abortTask(_ id: TaskID) async throws -> TaskAbortResult {
         try await call("harness.abortTask", ["task": id])
     }
 
-    /// Every commit's changes, as soon as it is stored (pi-durable `subscribeCommits`): records and document
-    /// operations, for example to replicate or sync a harness. Nothing is replayed; iteration starts with the next commit.
+    /// Every commit's changes, once it is stored (pi-durable `observeCommits`): records and document operations, for
+    /// example to replicate or sync a harness. Nothing is replayed; iteration starts with the next commit, and ends when
+    /// the harness closes.
+    ///
+    /// Streamed answers and running tool output are stored later than they are shown (pi-durable 1.5): they reach this
+    /// stream together with the next commit that ends them, or within ``Settings/Progress/persistWithin``. Follow
+    /// live progress with ``Conversation/views()`` instead.
     public func commits() -> AsyncThrowingStream<CommitPublication, Error> {
         engine.stream("harness.commits", ["harness": id])
     }
 
-    /// Every live task with its owner edges.
+    /// Every live task with its owner edges: the first value of a task graph watch (pi-durable 1.5 removed
+    /// `taskGraph()`).
     public func taskGraph() async throws -> TaskGraph {
         try await call("harness.taskGraph")
     }

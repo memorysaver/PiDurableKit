@@ -118,25 +118,16 @@ private struct Forecast: Codable, Sendable, Equatable {
         try await setup.faux.append(.toolCall("caller", [:]))
         try await setup.faux.append(.text("done"))
         let root = try await setup.root()
-        let events = try await setup.harness.watchEvents(root.id)
-        let collected = Mutex<[AgentEvent]>([])
-        let collector = Task {
-            for try await batch in events { collected.update { $0 += batch } }
-        }
         let submission = try await root.submit("Go")
         try await eventually { try await !root.liveState().nestedTools.isEmpty }
-        let nested = try #require(try await root.liveState().nestedTools.first)
+        let live = try await root.liveState()
+        let nested = try #require(live.nestedTools.first)
         #expect(nested.name == "slow")
         #expect(nested.callId.hasSuffix("/first"))
+        #expect(nested.parentCallId == live.tools.first { $0.name == "caller" }?.callId)
         gate.release()
         _ = try await withTimeout { try await answer(of: submission) }
         #expect(try await root.view().entries.compactMap(\.toolResult).first?.text == "slow done")
-        try await eventually {
-            collected.get().contains { if case .toolExecutionEnd(let call, _, let result?) = $0 { call.isNested && result.text == "slow done" } else { false } }
-        }
-        collector.cancel()
-        let starts = collected.get().compactMap { if case .toolExecutionStart(let call, _) = $0 { call } else { nil } }
-        #expect(starts.first { $0.toolName == "slow" }?.parentCallId == starts.first { $0.toolName == "caller" }?.callId)
         #expect(parents.get().count == 2)
         #expect(parents.get().compactMap { $0 }.count == 1)
     }

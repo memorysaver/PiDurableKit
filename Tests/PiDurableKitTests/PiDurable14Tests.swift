@@ -87,7 +87,7 @@ final class ManualClock: Sendable {
         clock.advance(by: 3600)
         #expect(try await harness.wake().active)
         try await harness.resume()
-        try await eventually(10) { if case .sleeping(let at)? = try await harness.task(id)?.status { at > until } else { false } }
+        try await eventually(10) { if case .sleeping(let at?)? = try await harness.task(id)?.status { at > until } else { false } }
         clock.advance(by: 60)
         try await harness.resume()
         let outcome = try await withTimeout(10) { try await harness.waitForTask(id, as: String.self) }
@@ -198,7 +198,7 @@ final class ManualClock: Sendable {
         try await harness.close()
     }
 
-    @Test func aTaskCutOffByCrashesIsParkedUntilRetried() async throws {
+    @Test func aTaskCutOffByCrashesEndsFaulted() async throws {
         let url = temporaryDirectory().appending(path: "crashes.sqlite")
         let released = Mutex(false)
         let work = TaskType<Empty, At, String>("test.work", version: 1, initial: { _ in At(phase: "work") }, abort: abortTask) {
@@ -219,17 +219,16 @@ final class ManualClock: Sendable {
             .sqlite(at: url), models: Models(builtinProviders: false, runtime: Runtime()),
             extensions: [Extension("tasks", tasks: [work.any])], settings: Settings(restartLimit: 1),
             onReport: { report in reports.update { $0.append(report) } })
-        let record = try #require(try await harness.task(id))
-        #expect(record.restarts == 1)
-        #expect(try await harness.inspect().tasks.first { $0.record.id == id }?.state == .blocked(reason: "restart_limit", error: nil))
-        #expect(try await harness.taskGraph().tasks[id]?.blocked == .restartLimit)
-        try await eventually(5) {
-            reports.get().contains { if case .taskParked(let task, _) = $0.kind { task.id == id } else { false } }
+        // pi-durable 1.5: a task cut off `restartLimit` times in a row no longer parks; it ends, faulted.
+        let outcome = try await withTimeout(10) { try await harness.waitForTask(id) }.outcome
+        guard case .faulted(_, let detail)? = outcome else {
+            Issue.record("Expected a faulted outcome, got \(String(describing: outcome))")
+            return
         }
-
-        released.set(true)
-        try await harness.retryTask(id)
-        #expect(try await withTimeout(10) { try await harness.waitForTask(id, as: String.self) }.result == "done")
+        #expect(detail?["reason"] == "restart_limit")
+        try await eventually(5) {
+            reports.get().contains { if case .taskFaulted(let task, _, true) = $0.kind { task.id == id } else { false } }
+        }
         try await harness.close()
     }
 
@@ -426,7 +425,7 @@ final class ManualClock: Sendable {
     @Test func extensionsCanRequireTheNewModules() async throws {
         let source = #"""
         const { defineExtension, defineTool } = require("@earendil-works/pi-durable");
-        const { Type } = require("@earendil-works/pi-ai");
+        const { obj, num, str } = require("@earendil-works/pi-schema");
         const sqlite = require("@earendil-works/chord/sqlite");
         const telemetrySqlite = require("@earendil-works/chord/telemetry-sqlite");
         const telemetry = require("@earendil-works/pi-telemetry");
@@ -436,7 +435,7 @@ final class ManualClock: Sendable {
             tools: [defineTool({
                 name: "modules",
                 description: "The new modules",
-                parameters: Type.Object({}),
+                parameters: obj({}),
                 execute: async () => ({
                     output: [{ type: "text", text: [typeof sqlite.validateSqliteSchemaPrefix, typeof telemetrySqlite.createSqliteTelemetry,
                         typeof telemetry.InMemoryTelemetryContext, typeof withTelemetry, typeof traceIn].join(" ") }],
@@ -473,7 +472,7 @@ extension HarnessReport {
     /// The task a report is about, if any.
     var task: ReportTask? {
         switch kind {
-        case .taskFaulted(let task, _, _), .taskParked(let task, _), .migrationFailed(let task, _), .taskOutdated(let task, _, _),
+        case .taskFaulted(let task, _, _), .taskInterrupted(let task, _, _, _), .migrationFailed(let task, _), .taskOutdated(let task, _, _),
             .taskError(let task, _):
             task
         case .extensionError(_, let task, _), .hostError(_, let task): task

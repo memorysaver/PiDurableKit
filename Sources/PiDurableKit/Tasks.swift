@@ -394,8 +394,9 @@ public struct TaskRecord: Decodable, Sendable, Hashable, Identifiable {
         case pending
         case running
         case waiting(on: [TaskID], policy: JoinPolicy)
-        /// Asleep until the harness clock reaches `until`, holding no invocation.
-        case sleeping(until: Date)
+        /// Asleep until the harness clock reaches `until`, or until signals arrive (pi-durable 1.6: `until` is optional
+        /// for a sleep that waits for signals only), holding no invocation.
+        case sleeping(until: Date?)
         /// The outcome is decided, but work the task owns is still finishing.
         case completing(TaskOutcome<JSONValue>)
         case terminal(TaskOutcome<JSONValue>)
@@ -424,7 +425,7 @@ public struct TaskRecord: Decodable, Sendable, Hashable, Identifiable {
     /// The live checkpoint.
     public let checkpoint: JSONValue?
     /// How many times in a row a crash, eviction, or reset cut the task off while it ran without it changing its state;
-    /// at ``Settings/restartLimit`` it is parked until ``Harness/retryTask(_:)``.
+    /// at ``Settings/restartLimit`` the task ends instead of running again.
     public let restarts: Int
     /// The telemetry context that created the task, when the harness records with propagation.
     public let trace: TelemetryCarrier?
@@ -484,7 +485,7 @@ public struct TaskRecord: Decodable, Sendable, Hashable, Identifiable {
             status = .waiting(
                 on: (try? (state["on"] ?? []).decode(as: [TaskID].self)) ?? [],
                 policy: JoinPolicy(rawValue: state["policy"]?.stringValue ?? "") ?? .allSettled)
-        case "sleeping": status = .sleeping(until: Date(timeIntervalSince1970: (state["until"]?.doubleValue ?? 0) / 1000))
+        case "sleeping": status = .sleeping(until: state["until"]?.doubleValue.map { Date(timeIntervalSince1970: $0 / 1000) })
         case "completing": status = .completing(try (state["outcome"] ?? [:]).decode(as: TaskOutcome<JSONValue>.self))
         default: status = .terminal(try (state["outcome"] ?? [:]).decode(as: TaskOutcome<JSONValue>.self))
         }
@@ -498,8 +499,8 @@ public struct TaskGraph: Decodable, Sendable, Hashable {
             case pending(phase: String)
             case running(phase: String)
             case waiting(phase: String, on: [TaskID], policy: JoinPolicy)
-            /// Asleep until the harness clock reaches `until`.
-            case sleeping(phase: String, until: Date)
+            /// Asleep until the harness clock reaches `until`, or until signals arrive.
+            case sleeping(phase: String, until: Date?)
             /// The decided outcome's status, such as `completed`.
             case completing(outcome: String)
         }
@@ -512,7 +513,7 @@ public struct TaskGraph: Decodable, Sendable, Hashable {
         public let background: Bool
         public let abortRequested: Bool
         public let state: State
-        /// Why the task can't run here, when it can't: no installed definition takes it, or the restart limit parked it.
+        /// Why the task can't run here, when it can't: no installed definition takes it.
         public let blocked: BlockedReason?
         /// Conversations this task owns, such as subagents'.
         public let conversations: [ConversationID]
@@ -540,7 +541,7 @@ public struct TaskGraph: Decodable, Sendable, Hashable {
                     phase: phase, on: (try? (state["on"] ?? []).decode(as: [TaskID].self)) ?? [],
                     policy: JoinPolicy(rawValue: state["policy"]?.stringValue ?? "") ?? .allSettled)
             case "sleeping":
-                self.state = .sleeping(phase: phase, until: Date(timeIntervalSince1970: (state["until"]?.doubleValue ?? 0) / 1000))
+                self.state = .sleeping(phase: phase, until: state["until"]?.doubleValue.map { Date(timeIntervalSince1970: $0 / 1000) })
             case "completing": self.state = .completing(outcome: state["outcome"]?.stringValue ?? "")
             default: self.state = .pending(phase: phase)
             }
@@ -578,17 +579,17 @@ public struct HarnessInspection: Decodable, Sendable, Hashable {
         public enum State: Sendable, Hashable {
             /// An invocation is running it.
             case running
-            /// The next scheduling pass reserves it; `migrates` when its definition is newer and has `migrate`.
-            case ready(migrates: Bool)
+            /// The next scheduling pass reserves it; `migrates` when its definition is newer and has `migrate`
+            /// (pi-durable `pending`, `ready` before 1.5).
+            case pending(migrates: Bool)
             /// Waits for these live tasks.
             case waiting(on: [TaskID])
-            /// Sleeps until the harness clock reaches `until`.
-            case sleeping(until: Date)
+            /// Sleeps until the harness clock reaches `until`, or until signals arrive.
+            case sleeping(until: Date?)
             /// Its outcome is held until the work it owns drains.
             case completing
             /// Can't run here: no installed definition can take it (`missing_task`, `task_too_old`, or
-            /// `migration_failed`, with the migration's error; aborting it settles it as orphaned), or the restart limit
-            /// parked it (`restart_limit`; ``Harness/retryTask(_:)`` runs it again).
+            /// `migration_failed`, with the migration's error; aborting it settles it as orphaned).
             case blocked(reason: String, error: String?)
         }
 
@@ -615,9 +616,9 @@ public struct HarnessInspection: Decodable, Sendable, Hashable {
             let state = try container.decode(JSONValue.self, forKey: .state)
             switch state["kind"]?.stringValue {
             case "running": self.state = .running
-            case "ready": self.state = .ready(migrates: state["migrates"]?.boolValue ?? false)
+            case "pending": self.state = .pending(migrates: state["migrates"]?.boolValue ?? false)
             case "waiting": self.state = .waiting(on: (try? (state["on"] ?? []).decode(as: [TaskID].self)) ?? [])
-            case "sleeping": self.state = .sleeping(until: Date(timeIntervalSince1970: (state["until"]?.doubleValue ?? 0) / 1000))
+            case "sleeping": self.state = .sleeping(until: state["until"]?.doubleValue.map { Date(timeIntervalSince1970: $0 / 1000) })
             case "completing": self.state = .completing
             default:
                 let error = state["error"].flatMap { $0.isNull ? nil : ($0["message"]?.stringValue ?? $0.stringValue ?? $0.jsonString) }
@@ -649,8 +650,6 @@ public struct BlockedReason: RawRepresentable, Hashable, Sendable, Codable, Cust
     public static let taskTooOld = BlockedReason(rawValue: "task_too_old")
     /// Migrating the task's state to the installed definition failed.
     public static let migrationFailed = BlockedReason(rawValue: "migration_failed")
-    /// Crashes cut it off ``Settings/restartLimit`` times in a row; ``Harness/retryTask(_:)`` runs it again.
-    public static let restartLimit = BlockedReason(rawValue: "restart_limit")
 }
 
 /// A timer from ``TaskRun/timer(after:_:)``.

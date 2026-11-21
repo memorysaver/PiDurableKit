@@ -175,26 +175,39 @@ public struct Settings: Codable, Sendable, Hashable {
         }
     }
 
-    /// How often running progress (partial answers, tool output) is committed.
+    /// How often running progress (partial answers, tool output) is committed, and how soon it is stored.
     public struct Progress: Codable, Sendable, Hashable {
         public var partialInterval: Duration?
         public var outputInterval: Duration?
+        /// How long progress commits may stay in memory before they are stored (pi-durable `persistWithinMs`): views
+        /// show each at once, while storage gets them with the next commit that ends the answer or the tool, or after
+        /// this long; a crash loses at most about this much. Default one second; zero stores each right away;
+        /// `Duration.forever` stores them only with the next such commit and at close.
+        public var persistWithin: Duration?
 
-        public init(partialInterval: Duration? = nil, outputInterval: Duration? = nil) {
+        public init(partialInterval: Duration? = nil, outputInterval: Duration? = nil, persistWithin: Duration? = nil) {
             self.partialInterval = partialInterval
             self.outputInterval = outputInterval
+            self.persistWithin = persistWithin
         }
 
         public func encode(to encoder: Encoder) throws {
             var container = encoder.container(keyedBy: AnyKey.self)
             try container.encodeIfPresent(partialInterval?.milliseconds, forKey: AnyKey("partialIntervalMs"))
             try container.encodeIfPresent(outputInterval?.milliseconds, forKey: AnyKey("outputIntervalMs"))
+            try container.encodeIfPresent(persistWithin?.milliseconds, forKey: AnyKey("persistWithinMs"))
         }
 
         public init(from decoder: Decoder) throws {
             let container = try decoder.container(keyedBy: AnyKey.self)
             partialInterval = try container.decodeIfPresent(Double.self, forKey: AnyKey("partialIntervalMs")).map { Duration.milliseconds($0) }
             outputInterval = try container.decodeIfPresent(Double.self, forKey: AnyKey("outputIntervalMs")).map { Duration.milliseconds($0) }
+            // An infinite delay arrives as `null`.
+            if container.contains(AnyKey("persistWithinMs")) {
+                persistWithin = try container.decodeIfPresent(Double.self, forKey: AnyKey("persistWithinMs")).map { Duration.milliseconds($0) } ?? .forever
+            } else {
+                persistWithin = nil
+            }
         }
     }
 
@@ -234,9 +247,10 @@ public struct Settings: Codable, Sendable, Hashable {
     public var documentRetention: Duration?
     /// What a run that fails with a model error does with the inputs queued behind it. Default ``AfterFailedRun/keep``.
     public var afterFailedRun: AfterFailedRun?
-    /// How many times in a row a crash, eviction, or reset may cut a task off without it changing its state before it is
-    /// parked (blocked with ``BlockedReason/restartLimit``) instead of run again; ``Harness/retryTask(_:)`` runs it
-    /// again. A close doesn't count. Default 5; `Int.max` never parks.
+    /// How many times in a row a crash, eviction, or reset may cut a task off without it changing its state before it
+    /// ends instead of running again (pi-durable 1.5; tasks no longer park): a tool call with an error result, a
+    /// compaction failed into ``LiveState/compactionFailure``, a run with a `restart_limit` run failure, any other task
+    /// faulted. A close doesn't count. Default 5; `Int.max` never ends a task for it.
     public var restartLimit: Int?
 
     public init(

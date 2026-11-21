@@ -52,13 +52,10 @@ struct FoundationModelsTests {
     @Test func answersAndStreams() async throws {
         guard #available(iOS 27.0, macOS 27.0, visionOS 27.0, *) else { return }
         let (harness, root) = try await setup()
-        let events = try await harness.watchEvents(root.id)
         let deltas = Mutex(0)
         let collector = Task {
-            for try await batch in events {
-                for case .messageUpdate(let changes, _) in batch {
-                    deltas.update { $0 += changes.count }
-                }
+            for try await view in root.views() where view.streamingMessage.map({ !$0.text.isEmpty }) == true {
+                deltas.update { $0 += 1 }
             }
         }
         let answer = try await withTimeout(60) {

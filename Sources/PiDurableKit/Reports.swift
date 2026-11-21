@@ -1,7 +1,7 @@
 import Foundation
 
 /// A failure that didn't fail the operation that ran into it, for ``Harness/open(_:models:extensions:settings:environment:resume:onConversationCreated:clock:timer:onWake:onReport:identity:telemetry:)``'s
-/// `onReport` (pi-durable `onReport(error, info)`): what went wrong, and what it was about.
+/// `onReport` (pi-durable `onReport(report)`): what went wrong, and what it was about.
 public struct HarnessReport: Sendable, Hashable, CustomStringConvertible {
     /// The error's message.
     public let message: String
@@ -10,12 +10,16 @@ public struct HarnessReport: Sendable, Hashable, CustomStringConvertible {
 
     /// What a report is about (pi-durable `ReportInfo`).
     public enum Kind: Sendable, Hashable {
-        /// The error failed the harness's session, which closes: a storage error, often a platform reset.
+        /// The error failed the harness's session, which closes: a storage error, often a platform reset (pi-durable
+        /// `storage_failed`).
         case sessionFailed
         /// The task ended faulted: its phase threw, or its abort handler was cut off ``Settings/restartLimit`` times.
         case taskFaulted(ReportTask, extension: String?, restartLimit: Bool)
-        /// The restart limit parked the task until ``Harness/retryTask(_:)``.
-        case taskParked(ReportTask, extension: String?)
+        /// Crashes ended a built-in task (a tool call, a compaction, or a generation): it was cut off
+        /// ``Settings/restartLimit`` times in a row (`restartLimit`), or its run ended because the host kept stopping
+        /// while the model answered (`!restartLimit`, pi-durable `interrupted`). `restarts` is its count when it ended.
+        /// Replaces pi-durable 1.4's parked tasks, which no longer exist.
+        case taskInterrupted(ReportTask, extension: String?, restartLimit: Bool, restarts: Int)
         /// The task's stored state couldn't be migrated; it is blocked until the installed task types change.
         case migrationFailed(ReportTask, extension: String?)
         /// A running task keeps running under its old definition, which was uninstalled (`missingTask`) or replaced by
@@ -38,11 +42,14 @@ public struct HarnessReport: Sendable, Hashable, CustomStringConvertible {
         self.message = message
         let task = info?["task"].flatMap(ReportTask.init(json:))
         let `extension` = info?["extension"]?.stringValue
-        switch info?["type"]?.stringValue {
-        case "session_failed": kind = .sessionFailed
+        switch info?["kind"]?.stringValue {
+        case "storage_failed": kind = .sessionFailed
         case "task_faulted" where task != nil:
             kind = .taskFaulted(task!, extension: `extension`, restartLimit: info?["reason"]?.stringValue == "restart_limit")
-        case "task_parked" where task != nil: kind = .taskParked(task!, extension: `extension`)
+        case "task_interrupted" where task != nil:
+            kind = .taskInterrupted(
+                task!, extension: `extension`, restartLimit: info?["reason"]?.stringValue == "restart_limit",
+                restarts: info?["restarts"]?.intValue ?? 0)
         case "migration_failed" where task != nil: kind = .migrationFailed(task!, extension: `extension`)
         case "task_outdated" where task != nil:
             kind = .taskOutdated(task!, extension: `extension`, missingTask: info?["reason"]?.stringValue == "missing_task")
@@ -92,6 +99,8 @@ public struct HostCallback: RawRepresentable, Hashable, Sendable, Codable, Custo
     public static let timer = HostCallback(rawValue: "setTimer")
     /// The wake callback.
     public static let onWake = HostCallback(rawValue: "onWake")
+    /// A telemetry recorder called while a commit was published.
+    public static let telemetry = HostCallback(rawValue: "telemetry")
 }
 
 /// Whose code a task's ``TaskRun/report(_:from:)`` is about when not the task's own (pi-durable `ReportFrom`).
@@ -105,10 +114,10 @@ public enum ReportSource: Sendable, Hashable, Encodable {
         var container = encoder.container(keyedBy: AnyKey.self)
         switch self {
         case .extension(let name):
-            try container.encode("extension", forKey: AnyKey("type"))
+            try container.encode("extension", forKey: AnyKey("kind"))
             try container.encodeIfPresent(name, forKey: AnyKey("extension"))
         case .host(let callback):
-            try container.encode("host", forKey: AnyKey("type"))
+            try container.encode("host", forKey: AnyKey("kind"))
             try container.encode(callback.rawValue, forKey: AnyKey("callback"))
         }
     }

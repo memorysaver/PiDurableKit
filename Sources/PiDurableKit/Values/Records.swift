@@ -190,6 +190,8 @@ public struct Cursor: Codable, Sendable, Hashable {
 public struct SubmissionRecord: Codable, Sendable, Hashable, Identifiable {
     public enum SubmissionType: String, Codable, Sendable {
         case input, write
+        /// A run on the context as it is, without a user message (pi-durable 1.5): it has no entry of its own.
+        case `continue`
     }
 
     public enum Status: Sendable, Hashable {
