@@ -431,6 +431,11 @@ public struct TaskRecord: Decodable, Sendable, Hashable, Identifiable {
     public let trace: TelemetryCarrier?
     /// Telemetry links attached to the task's first invocation.
     public let links: [TelemetryCarrier]
+    /// The signal keys a sleeping task waits for (pi-durable 1.6 `state.signals`); empty otherwise.
+    public let signals: [SignalKey]
+    /// Why a pending or running task last woke from a park (pi-durable 1.6 `state.wake`), kept while it runs at the
+    /// checkpoint it woke at.
+    public let wake: WakeReason?
 
     /// The outcome of a completing or terminal task.
     public var outcome: TaskOutcome<JSONValue>? {
@@ -478,6 +483,8 @@ public struct TaskRecord: Decodable, Sendable, Hashable, Identifiable {
         let state = try container.decode(JSONValue.self, forKey: .state)
         checkpoint = state["checkpoint"]
         rawOutcome = state["outcome"]
+        signals = (try? (state["signals"] ?? []).decode(as: [SignalKey].self)) ?? []
+        wake = state["wake"].flatMap { $0.isNull ? nil : try? $0.decode(as: WakeReason.self) }
         switch state["status"]?.stringValue {
         case "pending": status = .pending
         case "running": status = .running

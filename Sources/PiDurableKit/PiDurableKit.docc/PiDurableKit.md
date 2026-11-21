@@ -60,6 +60,13 @@ if case .done(_, let answer?) = settled.status {
 - ``ToolResult``
 - ``PromptSection``
 - ``Hook``
+- ``HookContext``
+- ``ToolDecision``
+- ``Signal``
+- ``SignalKey``
+- ``SignalState``
+- ``SignalResult``
+- ``WakeReason``
 - ``Wrap``
 - ``NestedToolResult``
 - ``ToolDefinition``
@@ -107,6 +114,7 @@ if case .done(_, let answer?) = settled.status {
 ### Observing
 
 - ``ConversationView``
+- ``ParkedToolCall``
 - ``RunFailure``
 - ``CommitPublication``
 - ``LiveState``

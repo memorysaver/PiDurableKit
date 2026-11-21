@@ -20,20 +20,27 @@ public struct ConversationView: Decodable, Sendable, Hashable {
     public let providerSessionId: String?
     /// Every built-in document, raw, keyed by kind.
     public let documents: JSONObject
+    /// The tool calls of ``live`` that are parked (``LiveState/ToolSlot/Status/sleeping`` or `waiting`), model-issued
+    /// and nested, with what each waits for: the signal keys and deadline of its task's committed sleep, and the task to
+    /// deliver a signal to. PiDurableKit reads these from each parked slot's task record when it builds the view, since
+    /// `pi.live` holds only the slot's status. Empty in ``ConversationChange/view``, which is pi-durable's view as is.
+    public let parkedCalls: [ParkedToolCall]
 
-    private enum CodingKeys: String, CodingKey { case conversation, entries, docs }
+    private enum CodingKeys: String, CodingKey { case conversation, entries, docs, parked }
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.init(
             conversation: try container.decode(ConversationRecord.self, forKey: .conversation),
             entries: try container.decodeIfPresent([Entry].self, forKey: .entries) ?? [],
-            docs: try container.decodeIfPresent(JSONObject.self, forKey: .docs) ?? [:])
+            docs: try container.decodeIfPresent(JSONObject.self, forKey: .docs) ?? [:],
+            parked: try container.decodeIfPresent([ParkedToolCall].self, forKey: .parked) ?? [])
     }
 
-    init(conversation: ConversationRecord, entries: [Entry], docs: JSONObject) {
+    init(conversation: ConversationRecord, entries: [Entry], docs: JSONObject, parked: [ParkedToolCall] = []) {
         self.conversation = conversation
         self.entries = entries
+        parkedCalls = parked
         documents = docs
         live = (try? docs["pi.live"].map { try $0.decode(as: LiveState.self) }) ?? LiveState()
         inbox = (try? docs["pi.inbox"]?["items"].map { try $0.decode(as: [InboxItem].self) }) ?? []
@@ -84,6 +91,11 @@ public struct LiveState: Decodable, Sendable, Hashable {
     public struct ToolSlot: Decodable, Sendable, Hashable, Identifiable {
         public enum Status: String, Decodable, Sendable {
             case pending, running, done
+            /// Parked until a signal or a deadline (pi-durable 1.6): by a ``Hook/beforeTool(_:)`` gate, or by the
+            /// tool. See ``ConversationView/parkedCalls`` for what it waits for.
+            case sleeping
+            /// Parked until tasks it owns end (pi-durable 1.6).
+            case waiting
         }
 
         public var id: String { callId }
@@ -172,12 +184,13 @@ struct ConversationViewUpdate: Decodable, Sendable {
     let keep: Int?
     let append: [Entry]?
     let docs: JSONObject?
+    let parked: [ParkedToolCall]?
 
     func view(after previous: [Entry]) -> ConversationView {
         var transcript = entries ?? []
         if entries == nil, let keep {
             transcript = Array(previous.prefix(keep)) + (append ?? [])
         }
-        return ConversationView(conversation: conversation, entries: transcript, docs: docs ?? [:])
+        return ConversationView(conversation: conversation, entries: transcript, docs: docs ?? [:], parked: parked ?? [])
     }
 }

@@ -19,6 +19,7 @@ import {
 	type HarnessOptions,
 	type HarnessSettings,
 	type SubmissionDraft,
+	type TaskGraph,
 	type SubmissionId,
 	type TaskId,
 	type WatchHandle,
@@ -163,6 +164,33 @@ function activeView(view: ConversationView): ConversationView {
 	if (marker === undefined) return { ...rest, entries };
 	const head = marker.head!;
 	return { ...rest, entries: [marker, ...entries.filter((entry) => entry !== marker && entry.id >= head)] };
+}
+
+/**
+ * The tool calls of a view that are parked (pi-durable 1.6): each `sleeping` or `waiting` slot of `pi.live`, model-issued
+ * or nested, with what its task waits for. A slot shows only its status; the signal keys, deadline, and awaited tasks are
+ * the task's committed state, which the task graph carries (`TaskGraphState`). A slot whose task the graph does not show
+ * parked (a gate running again after a wake or a reopen) is left out until it parks again.
+ */
+function parkedCalls(view: ConversationView, graph: TaskGraph): Args[] {
+	const live = view.docs["pi.live"] as { tools?: Args[]; nestedTools?: Args[] } | undefined;
+	const parked: Args[] = [];
+	for (const slot of [...(live?.tools ?? []), ...(live?.nestedTools ?? [])]) {
+		if ((slot.status !== "sleeping" && slot.status !== "waiting") || typeof slot.taskId !== "number") continue;
+		const task = graph.tasks[String(slot.taskId)]?.state as Args | undefined;
+		if (task === undefined || (task.status !== "sleeping" && task.status !== "waiting")) continue;
+		parked.push({
+			callId: slot.callId,
+			name: slot.name,
+			taskId: slot.taskId,
+			...(slot.parentCallId === undefined ? {} : { parentCallId: slot.parentCallId }),
+			status: task.status,
+			signals: task.status === "sleeping" ? (task.signals ?? []) : [],
+			...(task.until === undefined ? {} : { until: task.until }),
+			...(task.status === "waiting" ? { on: task.on ?? [], policy: task.policy } : {}),
+		});
+	}
+	return parked;
 }
 
 /** Streams a pi-durable watch to Swift. */
@@ -400,18 +428,29 @@ register({
 	"conversation.view": async (args, context) => {
 		// pi-durable 1.5 removed `viewState()`: the first value of a view watch is the view now.
 		const watch = await (await conversation(args, context)).watch(context, WHOLE_TRANSCRIPT);
+		const graph = await harnessState(args.harness).harness.watchTaskGraph(context);
 		try {
-			return activeView(watch.value);
+			return { ...activeView(watch.value), parked: parkedCalls(watch.value, graph.value) };
 		} finally {
-			await watch.stop();
+			await Promise.all([watch.stop(), graph.stop()]);
 		}
 	},
 	"conversation.watch": async (args, context) => {
 		// Entries are immutable, so after the first view only the entries appended since are sent (with how many of the
 		// previous ones to keep); a long transcript then costs nothing per update. A reset or compaction resends all.
+		const stream = args.stream as number;
+		const watch = await (await conversation(args, context)).watch(context, WHOLE_TRANSCRIPT);
+		// The task graph, for what parked calls wait for: a gate that parks again after a wake or a reopen changes its
+		// task but not its slot, so the view alone would not show it parked again.
+		const graph = await harnessState(args.harness).harness.watchTaskGraph(context);
+		let view = watch.value;
+		let tasks = graph.value;
+		let parked = JSON.stringify(parkedCalls(view, tasks));
 		let sent: readonly { id: unknown }[] | undefined;
-		pipe(args.stream, await (await conversation(args, context)).watch(context, WHOLE_TRANSCRIPT), (value) => {
-			const { entries, ...rest } = activeView(value) as unknown as { entries: readonly { id: unknown }[] };
+		const update = () => {
+			const calls = parkedCalls(view, tasks);
+			parked = JSON.stringify(calls);
+			const { entries, ...rest } = activeView(view) as unknown as { entries: readonly { id: unknown }[] };
 			const previous = sent;
 			sent = entries;
 			if (previous !== undefined && previous.length <= entries.length) {
@@ -422,10 +461,33 @@ register({
 						break;
 					}
 				}
-				if (same) return { ...rest, keep: previous.length, append: entries.slice(previous.length) };
+				if (same) return { ...rest, parked: calls, keep: previous.length, append: entries.slice(previous.length) };
 			}
-			return { ...rest, entries };
+			return { ...rest, parked: calls, entries };
+		};
+		openStream(stream, () => Promise.all([watch.stop(), graph.stop()]).then(() => undefined));
+		emit(stream, update());
+		// Durable's failures end the watch, so every call is a `value` call.
+		watch.start(async (call) => {
+			if (call.kind !== "value") return;
+			view = call.value;
+			emit(stream, update());
 		});
+		graph.start(async (call) => {
+			if (call.kind !== "value") return;
+			tasks = call.value;
+			if (JSON.stringify(parkedCalls(view, tasks)) !== parked) emit(stream, update());
+		});
+		watch.closed.then(
+			(end) => {
+				void graph.stop();
+				finish(stream, watchEndError(end));
+			},
+			(error) => {
+				void graph.stop();
+				finish(stream, error);
+			},
+		);
 	},
 	"conversation.changes": async (args, context) => {
 		pipe(args.stream, await (await conversation(args, context)).watch(context), (view, ops) => ({ view, ops }));

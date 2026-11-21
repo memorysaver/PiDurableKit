@@ -129,7 +129,7 @@ let assistant = Extension("assistant") {
     PromptSection("today") { _ in Date.now.formatted(date: .complete, time: .omitted) }
     weather
     Hook.beforeTool { call, _ in
-        await askUserForApproval(call) ? .allow : .block("The user declined")
+        call.name == "delete_everything" ? .block("Not allowed here") : .allow
     }
 }
 
@@ -311,8 +311,53 @@ Extension("guard") {
 }
 ```
 
-Hooks get a `HookContext` with `memo` and `document(_:)`; sections get `input.shown` (sections already in effect) and
-`input.document(_:)`.
+Hooks get a `HookContext` with `memo`, `document(_:)`, `now()`, `readSignal(_:key:)`, and `wake()`; sections get
+`input.shown` (sections already in effect) and `input.document(_:)`.
+
+### Approval gates and signals
+
+A `beforeTool` hook can park a call before it runs until a signal arrives (pi-durable 1.6 gates): return
+`.sleep(signals:until:)`. The call then holds no process, survives a restart, and shows in the conversation view;
+whatever shows the question delivers the answer with `harness.signal(taskId:_:key:value:)`. Every wake runs every
+`beforeTool` hook again from the top, so the gate reads its key with `readSignal` and allows, blocks, or sleeps again:
+
+```swift
+struct Decision: Codable, Sendable { var allow: Bool }
+let approval = Signal<Decision>("app.approval", version: 1, schema: .object(["allow": .boolean]))
+
+let approvals = Extension("approvals") {
+    Hook.beforeTool { call, context in
+        guard call.name == "write" else { return .allow }
+        // One deadline per question: later passes reuse the memoized one.
+        let now = try await context.now()
+        let until = try await context.memo("approval.until.\(call.id)", default: now.addingTimeInterval(24 * 3600))
+        switch try await context.readSignal(approval, key: call.id) {
+        case nil: return .sleep(signals: [approval.key(call.id)], until: until)
+        case .expired?: return .block("No approval within a day")
+        case .value(let decision)?: return decision.allow ? .allow : .block("The owner declined")
+        }
+    }
+}
+
+// In the UI: every parked call, with its task and the keys it waits for.
+for call in view.parkedCalls where call.signals.contains(approval.key(call.callId)) {
+    // On Approve (or Decline with `allow: false`):
+    let result = try await harness.signal(taskId: call.taskId, approval, key: call.callId, value: Decision(allow: true))
+    // .delivered, or .duplicate (already answered), .closed (the call ended), .invalid, .notFound
+}
+```
+
+- A `Signal` is data (name, version, JSON schema), checked against every delivery; define it once and use the same
+  value in the gate and where you deliver. Nothing is installed. A key serves one wait: key a question by the call
+  (`call.id`, or a digest of its arguments), and a second question on the same call needs a new key.
+- The slot is `.sleeping` in `view.live.tools`; `view.parkedCalls` adds the signal keys, the deadline, and the call's
+  task ID from the task's committed state (also `TaskRecord.signals` and `TaskRecord.wake`).
+- Installing or uninstalling extensions, and reopening the harness, run parked gates again, so keep a gate's side
+  effects idempotent and memoize deadlines. `context.wake()` says why the gates run: `.signal`, `.expired`, or `nil`
+  for the first pass and for a reopen or registry change.
+- A decline is a `.block`: the model gets the message as an error result. Aborting the conversation ends a parked
+  call with an `aborted` error result without running it; a later signal answers `.closed`.
+- Nothing checks who sends a signal: authenticate in your app.
 
 ### Calling a model from a tool or task
 

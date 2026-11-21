@@ -7,6 +7,7 @@ import "./tx.ts";
 import "./scopes.ts";
 import "./extensions.ts";
 import "./harness.ts";
+import "./signals.ts";
 import "./envapi.ts";
 import "./storage.ts";
 import { register } from "./core.ts";

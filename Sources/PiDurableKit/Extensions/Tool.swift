@@ -512,8 +512,7 @@ public struct ToolCallContext: Sendable {
 
     /// The harness clock (pi-durable `api.now()`): the times a rerun after a restart compares against.
     public func now() async throws -> Date {
-        let milliseconds: Double = try await handle.call("scope.now")
-        return Date(timeIntervalSince1970: milliseconds / 1000)
+        try await handle.now()
     }
 
     /// The output retained so far, as the model will see it when the result omits ``ToolResult/output``, and whether

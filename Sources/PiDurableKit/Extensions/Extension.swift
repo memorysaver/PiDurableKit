@@ -312,6 +312,27 @@ public struct HookContext: Sendable {
     ) async throws -> Value {
         try await handle.document(document, of: owner ?? .conversation(conversationId), key: key, asOf: entry)
     }
+
+    /// The harness clock (pi-durable `HookApi.now()`), for a gate's deadline: memoize it, since a gate runs again on
+    /// every wake.
+    public func now() async throws -> Date {
+        try await handle.now()
+    }
+
+    /// A signal key's committed state in the asking task (pi-durable `HookApi.readSignal()`): the value delivered under
+    /// it, ``SignalState/expired`` when the gate's deadline came first, or `nil` while nothing came. A
+    /// ``Hook/beforeTool(_:)`` gate that parked with ``ToolDecision/sleep(signals:until:)`` reads its key here on the
+    /// next pass and allows, blocks, or sleeps on a new key.
+    public func readSignal<Value>(_ signal: Signal<Value>, key: String) async throws -> SignalState<Value>? {
+        try await handle.readSignal(signal, key: key)
+    }
+
+    /// Why the asking task last woke from a park (pi-durable `state.wake`), as committed: for a ``Hook/beforeTool(_:)``
+    /// gate, why its call runs the gates again; `nil` on the first pass, and on a pass that a registry change or a
+    /// reopen started rather than a wake.
+    public func wake() async throws -> WakeReason? {
+        try await handle.wake()
+    }
 }
 
 /// What a compaction is about to summarize, for ``Hook/beforeCompact(_:)``.
@@ -365,8 +386,26 @@ public struct Hook: Sendable {
 
     let kind: Kind
 
-    /// Runs before a tool call's intent is recorded: allow it, rewrite its arguments, or block it with a message the
-    /// model sees. Throwing blocks the call. A good place to ask the user for approval.
+    /// Runs before a tool call's intent is recorded: allow it, rewrite its arguments, block it with a message the
+    /// model sees, or park it until a signal or a deadline (``ToolDecision/sleep(signals:until:)``). Throwing blocks
+    /// the call. A good place to ask the user for approval.
+    ///
+    /// A gate that parks runs again, with every other `beforeTool` hook, on every wake of the call, after every
+    /// extension install or uninstall, and when a harness reopens; the call executes once a whole pass ends without a
+    /// block or a sleep, and after that the hooks never run again for it. So a gate keys its question by the call
+    /// (``ToolCall/id`` or a digest of its arguments), reads the answer with ``HookContext/readSignal(_:key:)``, and
+    /// keeps its side effects idempotent:
+    ///
+    /// ```swift
+    /// Hook.beforeTool { call, context in
+    ///     guard call.name == "write" else { return .allow }
+    ///     switch try await context.readSignal(approval, key: call.id) {
+    ///     case nil: return .sleep(signals: [approval.key(call.id)])
+    ///     case .expired?: return .block("No answer in time")
+    ///     case .value(let decision)?: return decision.allow ? .allow : .block("Declined by the owner")
+    ///     }
+    /// }
+    /// ```
     public static func beforeTool(_ handler: @escaping @Sendable (ToolCall, HookContext) async throws -> ToolDecision) -> Hook {
         Hook(kind: .beforeTool(handler))
     }
@@ -467,6 +506,12 @@ public enum ToolDecision: Sendable {
     case rewrite(JSONObject)
     /// Do not run the call; the model sees this message as an error result.
     case block(String)
+    /// Park the call before it runs (pi-durable `{ sleep: { signals, until } }`): it holds no process, and its slot
+    /// shows `sleeping` (``ConversationView/parkedCalls``) until a value arrives under one of `signals` or the harness
+    /// clock reaches `until`, whichever comes first; then every `beforeTool` hook runs again. Needs `until` or a
+    /// non-empty `signals`; a key that already served a wait, or neither, ends the call with an `invalid_park` error
+    /// result.
+    case sleep(signals: [SignalKey] = [], until: Date? = nil)
 }
 
 /// Decorates a tool or a section by name, whichever extension provides it (pi-durable `wrapTool` and `wrapSection`).

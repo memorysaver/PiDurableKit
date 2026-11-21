@@ -18,6 +18,7 @@ import type { ExecutionEnv } from "@earendil-works/pi-durable/env";
 import { type Args, closeHandle, emit, finish, handle, host, openHandle, openStream, register, watchEndError } from "./core.ts";
 import { draftOf, readDoc, watchArguments } from "./docs.ts";
 import { describeAgent, describeRegistry, describeSettings, describeTask, type HarnessState, resolveSettings, taskDefinition } from "./state.ts";
+import { describeSignalState, type SignalReader, signalToken } from "./signals.ts";
 import { runSwiftCommit, taskOwnership, traceOptions } from "./tx.ts";
 
 // biome-ignore lint/suspicious/noExplicitAny: task runtimes are erased across Swift-defined tasks
@@ -202,10 +203,29 @@ register({
 		});
 		return view;
 	},
-	// The harness clock, for a task phase or a tool call (pi-durable `ToolExecutionApi.now()`).
+	// The harness clock, for a task phase, a tool call, or a hook (pi-durable `ToolExecutionApi.now()`, `HookApi.now()`).
 	"scope.now": (args) => {
 		const scope = scopeOf(args);
-		return (scope.tool ?? runtimeOf(scope)).now();
+		return (scope.tool ?? scope.hook ?? runtimeOf(scope)).now();
+	},
+	/** `readSignal(token, key, context)` of the asking task: a hook's, a tool call's, or a task phase's. */
+	"scope.readSignal": async (args, context) => {
+		const scope = scopeOf(args);
+		const reader = (scope.tool ?? scope.hook ?? scope.runtime) as SignalReader | undefined;
+		if (reader === undefined) throw new Error("Signals are not available here");
+		return describeSignalState(await reader.readSignal(signalToken(args.signal), args.key as string, context));
+	},
+	/**
+	 * Why the asking task last woke (`WakeReason`), or null: a tool call's `api.wake`; for a hook, the committed
+	 * `state.wake` of the task it runs in, which pi-durable keeps while the task runs at the checkpoint it woke at.
+	 */
+	"scope.wake": async (args, context) => {
+		const scope = scopeOf(args);
+		if (scope.tool !== undefined) return scope.tool.wake ?? null;
+		if (scope.hook === undefined) throw new Error("Only tool calls and hooks can do this");
+		const record = await scope.harness.harness.getTask(scope.hook.taskId, context);
+		const state = record?.state as { status: string; wake?: unknown } | undefined;
+		return state !== undefined && (state.status === "running" || state.status === "pending") ? (state.wake ?? null) : null;
 	},
 	"scope.sleepUntil": (args, context) => runtimeOf(scopeOf(args)).sleepUntil(args.until, args.checkpoint, context),
 	"scope.setTimer": (args) => {

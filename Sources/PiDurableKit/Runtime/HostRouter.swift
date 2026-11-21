@@ -469,6 +469,11 @@ final class HostRouter: Sendable {
             switch try await handler(call, try hookContext(arguments)) {
             case .allow: continue
             case .block(let message): return ["block": .string(message)]
+            case .sleep(let signals, let until):
+                // The first block or sleep stops the chain; the next pass starts over with the call's own arguments.
+                var sleep: JSONObject = ["signals": try JSONValue(encoding: signals)]
+                if let until { sleep["until"] = .number((until.timeIntervalSince1970 * 1000).rounded()) }
+                return ["sleep": .object(sleep)]
             case .rewrite(let newArguments):
                 call.arguments = newArguments
                 rewritten = true
