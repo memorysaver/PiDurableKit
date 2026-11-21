@@ -1,6 +1,6 @@
 import type { TelemetryCarrier } from "@earendil-works/pi-telemetry";
 // Transactions: Swift runs a closure inside a pi-durable commit and reaches the `Tx` through a handle.
-import type { Context } from "@earendil-works/chord";
+import type { Context } from "@earendil-works/chord/context";
 import {
 	type ConversationId,
 	type ConversationOwnership,

@@ -5,7 +5,7 @@
 // Two backends: `NativeBackend`, a sandbox rooted at one host directory (the model never sees the app's container paths
 // and cannot leave the directory; a shell runs there only when Swift enables it, on macOS), and `HostBackend`, an
 // environment implemented in Swift (`CustomExecutionEnvironment`).
-import type { Context } from "@earendil-works/chord";
+import type { Context } from "@earendil-works/chord/context";
 import {
 	type BinaryReader,
 	type DirReader,
@@ -28,7 +28,7 @@ import {
 	type ShellExecResult,
 	type TextLine,
 	type TextLineReader,
-	type WatchChange,
+	type FileChange,
 	type WatchTarget,
 } from "@earendil-works/pi-durable/env";
 import { type Args, host, register } from "./core.ts";
@@ -332,7 +332,7 @@ export class BackendEnv implements ExecutionEnv {
 	 */
 	async watch(
 		targets: readonly WatchTarget[],
-		onChange: (change: WatchChange) => void,
+		onChange: (change: FileChange) => void,
 		context: Context,
 	): Promise<Result<FileWatcher, FileError>> {
 		const stop = aborted(context, targets[0]?.path ?? "/");
@@ -370,11 +370,11 @@ export class BackendEnv implements ExecutionEnv {
 				}
 				for (const path of previous.keys()) if (!next.has(path)) appearedOrVanished(path);
 				previous = next;
-				if (!closed && changed.size > 0) onChange({ paths: [...changed].sort() });
+				if (!closed && changed.size > 0) onChange({ kind: "paths", paths: [...changed].sort() });
 			} catch (error) {
 				if (closed) return;
 				closed = true;
-				onChange({ error: fileError(error, resolved[0]?.path ?? "/") });
+				onChange({ kind: "failed", error: fileError(error, resolved[0]?.path ?? "/") });
 				return;
 			}
 			if (!closed) timer = setTimeout(poll, POLL_INTERVAL_MS);
@@ -382,7 +382,7 @@ export class BackendEnv implements ExecutionEnv {
 		timer = setTimeout(poll, POLL_INTERVAL_MS);
 		return ok({
 			mode: "polling",
-			close: async () => {
+			stop: async () => {
 				closed = true;
 				if (timer !== undefined) clearTimeout(timer);
 			},

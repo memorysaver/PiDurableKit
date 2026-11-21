@@ -39,6 +39,14 @@ class HostSqliteExecutor implements SqliteExecutor {
 	async run(sql: string, ...params: SqliteValue[]): Promise<void> {
 		await host("sqlite.run", { database: this.database, transaction: this.transactionId, sql, params: params.map(encode) });
 	}
+	async runCounted(sql: string, ...params: SqliteValue[]): Promise<number> {
+		return host<number>("sqlite.runCounted", {
+			database: this.database,
+			transaction: this.transactionId,
+			sql,
+			params: params.map(encode),
+		});
+	}
 	async get<T extends object>(sql: string, ...params: SqliteValue[]): Promise<T | undefined> {
 		const row = await host<Record<string, Wire> | null>("sqlite.get", {
 			database: this.database,

@@ -1,7 +1,7 @@
 // Bridge plumbing shared by every module: Swift → JavaScript calls, JavaScript → Swift host calls, pushed streams,
 // and scoped handles that let Swift reach JavaScript objects (transactions, tool calls, task runs) by number.
 import { BACKGROUND_CONTEXT, withAbortSignal } from "@earendil-works/chord/context";
-import type { Context } from "@earendil-works/chord";
+import type { Context } from "@earendil-works/chord/context";
 import { native, runtimeCallbacks } from "../runtime/native.ts";
 
 export type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
@@ -238,9 +238,9 @@ export function plain<T>(value: T): Json {
 }
 
 /** The error a stream ends with for a watch's terminal result: a listener's error, or the one that failed the Session. */
-export function watchEndError(end: { reason: string; error?: unknown }): unknown {
-	if (end.reason === "listener_error") return end.error;
-	if (end.reason === "session_failed") {
+export function watchEndError(end: { readonly kind: string; readonly error?: unknown }): unknown {
+	if (end.kind === "listener_error") return end.error;
+	if (end.kind === "failed") {
 		const cause = end.error;
 		return Object.assign(new Error(`The session failed: ${cause instanceof Error ? cause.message : messageOf(cause)}`, { cause }), {
 			name: "SessionFailed",

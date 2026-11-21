@@ -1,6 +1,6 @@
 // Execution environments as Swift sees them (`ExecutionEnv` in Swift): the environment of a tool call, task phase, or
 // section, or one the host builds for a conversation, reached through handles.
-import type { Context } from "@earendil-works/chord";
+import type { Context } from "@earendil-works/chord/context";
 import type { ConversationId } from "@earendil-works/pi-durable";
 import type { BinaryReader, DirReader, ExecutionEnv, ListFilesOptions, Result, TextLineReader } from "@earendil-works/pi-durable/env";
 import { type Args, closeHandle, contextOf, emit, finish, handle, openHandle, openStream, register } from "./core.ts";
@@ -161,20 +161,21 @@ register({
 			}
 		})().catch((error) => finish(stream, error));
 	},
-	/** Watches files: emits each `WatchChange`; the stream ends when the watcher stops. */
+	/** Watches files: emits each `FileChange` as `{ paths }` or `{ overflow: true }`; the stream ends when the watcher stops. */
 	"env.watch": async (args, context) => {
 		const stream = args.stream as number;
 		const watcher = await unwrap(
 			envOf(args).watch(
 				args.targets,
 				(change) => {
-					if ("error" in change) finish(stream, change.error);
-					else emit(stream, change);
+					if (change.kind === "failed") finish(stream, change.error);
+					else if (change.kind === "overflow") emit(stream, { overflow: true });
+					else emit(stream, { paths: change.paths });
 				},
 				context,
 			),
 		);
-		openStream(stream, () => watcher.close(contextOf(undefined)));
+		openStream(stream, () => watcher.stop(contextOf(undefined)));
 		emit(stream, { mode: watcher.mode });
 	},
 });

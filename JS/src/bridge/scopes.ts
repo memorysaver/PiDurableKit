@@ -1,5 +1,7 @@
 // Invocation scopes: what a Swift tool call, task phase, hook, or section can do while it runs.
-import type { Context, JsonValue } from "@earendil-works/chord";
+import type { Context } from "@earendil-works/chord/context";
+import type { JsonValue } from "@earendil-works/chord/json";
+import type { WatchHandle } from "@earendil-works/chord/watch";
 import type {
 	ConversationHandle,
 	ConversationId,
@@ -83,7 +85,7 @@ register({
 		const observer = scope.tool ?? scope.runtime;
 		if (observer === undefined) throw new Error("Only tool calls and task phases can watch documents");
 		type Watch = (...rest: unknown[]) => Promise<
-			{ value: unknown; start(listener: (value: unknown) => Promise<void>): void; stop(): Promise<unknown>; closed: Promise<unknown> } | undefined
+			WatchHandle<unknown> | undefined
 		>;
 		const watch = (observer.watchDoc as unknown as Watch).bind(observer);
 		let handle = await watch(...watchArguments(args), context);
@@ -100,9 +102,12 @@ register({
 		const watchHandle = handle;
 		openStream(args.stream, () => watchHandle.stop());
 		emit(args.stream, watchHandle.value ?? args.doc.initial);
-		watchHandle.start(async (value) => emit(args.stream, value ?? args.doc.initial));
+		watchHandle.start(async (call) => {
+			// A retired document reads as its initial value until it is created again.
+			if (call.kind === "value") emit(args.stream, call.retired && call.ops.length === 0 ? args.doc.initial : (call.value ?? args.doc.initial));
+		});
 		watchHandle.closed.then(
-			(end) => finish(args.stream, watchEndError(end as { reason: string; error?: unknown })),
+			(end) => finish(args.stream, watchEndError(end)),
 			(error) => finish(args.stream, error),
 		);
 	},

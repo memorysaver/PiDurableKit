@@ -1,6 +1,6 @@
 // Extensions defined in Swift (tools, sections, hooks, wraps, and durable tasks, each calling back into Swift), and
 // JavaScript extensions evaluated as they are.
-import type { Context } from "@earendil-works/chord";
+import type { Context } from "@earendil-works/chord/context";
 import {
 	CompactionTask,
 	type Extension,
@@ -105,7 +105,6 @@ export function buildExtension(state: HarnessState, spec: Args): Extension {
 		return defineExtension({
 			...createCodemodeExtension({
 				sandbox,
-				...(spec.namespaces == null ? {} : { namespaces: spec.namespaces }),
 				...(spec.inlineBudget == null ? {} : { inlineBudget: spec.inlineBudget }),
 				...(spec.models == null ? {} : { models: spec.models }),
 			}),
@@ -383,7 +382,9 @@ export function buildExtension(state: HarnessState, spec: Args): Extension {
 		} as never),
 	);
 
-	return defineExtension({ name, tools, sections, hooks, wraps, tasks } as never);
+	// The code mode namespace of this extension's tools (pi-durable 1.6 groups tools by extension, not by name prefix).
+	const namespace = spec.namespace == null ? {} : { namespace: spec.namespace };
+	return defineExtension({ name, ...namespace, tools, sections, hooks, wraps, tasks } as never);
 }
 
 register({

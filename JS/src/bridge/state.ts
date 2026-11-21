@@ -1,5 +1,5 @@
 // Open harnesses and the conversions every module shares.
-import type { Context } from "@earendil-works/chord";
+import type { Context } from "@earendil-works/chord/context";
 import {
 	DEFAULT_COMPACTION_POLICY,
 	DEFAULT_PROGRESS_POLICY,
@@ -7,6 +7,7 @@ import {
 	DEFAULT_RETRY_POLICY,
 	type HarnessSettings,
 	type RegistrySnapshot,
+	type SessionEnd,
 	type Settings,
 } from "@earendil-works/pi-durable";
 import type {
@@ -41,7 +42,7 @@ export type HarnessState = {
 export const harnesses = new Map<number, HarnessState>();
 
 /** How each opened harness or session ended, kept after it closed so a late caller still learns why. */
-export const endings = new Map<number, Promise<{ reason: "closed" } | { reason: "failed"; error: unknown }>>();
+export const endings = new Map<number, Promise<SessionEnd>>();
 
 export function harnessState(id: number): HarnessState {
 	const state = harnesses.get(id);
@@ -151,6 +152,7 @@ export function resolveSettings(settings: HarnessSettings): Settings {
 		progress: {
 			partialIntervalMs: settings.progress?.partialIntervalMs ?? DEFAULT_PROGRESS_POLICY.partialIntervalMs,
 			outputIntervalMs: settings.progress?.outputIntervalMs ?? DEFAULT_PROGRESS_POLICY.outputIntervalMs,
+			persistWithinMs: settings.progress?.persistWithinMs ?? DEFAULT_PROGRESS_POLICY.persistWithinMs,
 		},
 		toolExecution: settings.toolExecution ?? "parallel",
 		steeringMode: settings.steeringMode ?? "one-at-a-time",

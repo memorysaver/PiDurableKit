@@ -7,6 +7,7 @@ import * as chordSqlite from "@earendil-works/chord/sqlite";
 import * as chordTelemetrySqlite from "@earendil-works/chord/telemetry-sqlite";
 import * as piTelemetry from "@earendil-works/pi-telemetry";
 import * as piAI from "@earendil-works/pi-ai";
+import * as piSchema from "@earendil-works/pi-schema";
 import * as piDurable from "@earendil-works/pi-durable";
 import * as piDurableEnv from "@earendil-works/pi-durable/env";
 import * as piDurableTools from "@earendil-works/pi-durable/tools";
@@ -24,6 +25,7 @@ const modules: Record<string, unknown> = {
 	"@earendil-works/pi-durable/codemode": piDurableCodemode,
 	"@earendil-works/pi-codemode/portable": piCodemode,
 	"@earendil-works/pi-ai": piAI,
+	"@earendil-works/pi-schema": piSchema,
 	"@earendil-works/chord/context": chordContext,
 	"@earendil-works/chord/output": chordOutput,
 	"@earendil-works/chord/sqlite": chordSqlite,
@@ -36,7 +38,7 @@ const modules: Record<string, unknown> = {
  *
  * ```js
  * const { defineExtension, defineTool } = require("@earendil-works/pi-durable");
- * const { Type } = require("@earendil-works/pi-ai");
+ * const { obj, num } = require("@earendil-works/pi-schema");
  * module.exports = defineExtension({ name: "weather", tools: [defineTool({ … })] });
  * ```
  */

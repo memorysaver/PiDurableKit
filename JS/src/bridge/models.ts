@@ -1,5 +1,5 @@
 // Model access: pi-ai Models collections, credentials kept by Swift, OAuth sign-in, custom and faux providers.
-import type { Context } from "@earendil-works/chord";
+import type { Context } from "@earendil-works/chord/context";
 import {
 	type AnyModel,
 	type AssistantMessage,
@@ -43,7 +43,7 @@ import { registerBunOAuthFlows } from "@earendil-works/pi-ai/bun-oauth";
 import { builtinProviders } from "@earendil-works/pi-ai/providers/all";
 import { followingCatalog, HostModelsStore, withRemoteCatalogs } from "./catalog.ts";
 import { type Args, emit, finish, host, openStream, register } from "./core.ts";
-import type { Context as ChordContext } from "@earendil-works/chord";
+import type { Context as ChordContext } from "@earendil-works/chord/context";
 
 // MARK: Models
 

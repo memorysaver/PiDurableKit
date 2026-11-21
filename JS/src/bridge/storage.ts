@@ -1,8 +1,17 @@
 // Storage backends chosen by Swift, including ones implemented in Swift (`CustomStorage`), plain Sessions without a
 // Harness, and pi-durable's conformance suites run against Swift implementations.
-import type { Context } from "@earendil-works/chord";
+import type { Context } from "@earendil-works/chord/context";
 import { apply, type Op } from "@earendil-works/chord/delta";
-import { createRegistry, createSession, MemoryStorage, type Storage, StorageRequestError } from "@earendil-works/pi-durable";
+import {
+	type CommitResult,
+	createRegistry,
+	createSession,
+	MemoryStorage,
+	type Seq,
+	type Storage,
+	StorageRequestError,
+	type StorageWrite,
+} from "@earendil-works/pi-durable";
 import { JsonlStorage } from "@earendil-works/pi-durable/storage/jsonl";
 import { SqliteStorage } from "@earendil-works/pi-durable/storage/sqlite";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
@@ -36,8 +45,28 @@ class HostStorage implements Storage {
 		return (await this.#call<T | null>(operation, args, context)) ?? undefined;
 	}
 
-	commit(writes: readonly unknown[], context: Context) {
-		return this.#call("commit", { writes }, context) as never;
+	/**
+	 * Swift's `CustomStorage` stores one batch per call, so a group commit is one call per batch, in order: each batch is
+	 * atomic, and the batches before a failure stay stored, as the contract allows. A batch Swift refuses with
+	 * `StorageCommitRefused` (Durable's own checks) ends the group with that refusal; any other error rejects.
+	 */
+	async commit(batches: readonly (readonly StorageWrite[])[], receive: (index: number, seq: Seq) => void, context: Context): Promise<CommitResult> {
+		const seqs: Seq[] = [];
+		let refused: { error: unknown } | undefined;
+		try {
+			for (const writes of batches) {
+				try {
+					seqs.push(await host<Seq>("storage.custom", { storage: this.#storage, operation: "commit", writes }, context));
+				} catch (error) {
+					if ((error as { code?: string }).code !== "storage_refused") throw error;
+					refused = { error: new Error((error as Error).message) };
+					break;
+				}
+			}
+		} finally {
+			seqs.forEach((seq, index) => receive(index, seq));
+		}
+		return refused === undefined ? { stored: seqs.length } : { stored: seqs.length, refused: refused.error };
 	}
 	mintId() {
 		return this.#call("mintId", {}) as never;
@@ -213,7 +242,7 @@ register({
 		const ending = endings.get(args.harness);
 		if (ending === undefined) throw new Error("The harness is closed");
 		void ending.then((end) => {
-			emit(stream, end.reason === "failed" ? { reason: "failed", error: serializeError(end.error) } : { reason: "closed" });
+			emit(stream, end.kind === "failed" ? { reason: "failed", error: serializeError(end.error) } : { reason: "closed" });
 			finish(stream);
 		});
 	},

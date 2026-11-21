@@ -1,5 +1,5 @@
 // Harnesses, conversations, submissions, documents, and task inspection.
-import type { Context } from "@earendil-works/chord";
+import type { Context } from "@earendil-works/chord/context";
 import {
 	AgentDoc,
 	InboxDoc,
@@ -8,6 +8,9 @@ import {
 	UsageDoc,
 	type ConversationCreateOptions,
 	type ConversationId,
+	type ConversationView,
+	type ConversationWindow,
+	type EntryRecord,
 	type ConversationInit,
 	createRegistry,
 	type EntryId,
@@ -18,7 +21,6 @@ import {
 	type SubmissionDraft,
 	type SubmissionId,
 	type TaskId,
-	watchEvents,
 	type WatchHandle,
 } from "@earendil-works/pi-durable";
 import { type Args, emit, finish, host, hostSync, openStream, register, serializeError, watchEndError, withHandle } from "./core.ts";
@@ -90,7 +92,10 @@ function liveSettings(state: HarnessState): HarnessSettings {
 			return value().compaction;
 		},
 		get progress() {
-			return value().progress;
+			// Swift has no infinite duration: a delay of a million years or more stores progress only when it must.
+			const progress = value().progress;
+			const ms = progress?.persistWithinMs;
+			return typeof ms === "number" && ms >= 3.15e16 ? { ...progress, persistWithinMs: Number.POSITIVE_INFINITY } : progress;
 		},
 		get toolExecution() {
 			return value().toolExecution;
@@ -108,7 +113,7 @@ function liveSettings(state: HarnessState): HarnessSettings {
 			return value().afterFailedRun;
 		},
 		get restartLimit() {
-			// Swift's `Int.max` means never park.
+			// Swift's `Int.max` means no limit.
 			const limit = value().restartLimit;
 			return typeof limit === "number" && limit >= 9e15 ? Number.POSITIVE_INFINITY : limit;
 		},
@@ -133,11 +138,45 @@ function createOptions(state: HarnessState, args: Args, context: Context): Conve
 	};
 }
 
+/**
+ * The window of the views Swift gets: the whole transcript. pi-durable's views hold a window of the newest entries of
+ * the fork-aware history (50 to 100 by default); Swift's `ConversationView.entries` is the active transcript, as it was
+ * before pi-durable 1.5, so the window must reach back to the newest head marker's `head`.
+ */
+const WHOLE_TRANSCRIPT: ConversationWindow = { min: 1_000_000 };
+
+/**
+ * The view with its `entries` cut to the active transcript, as `viewState()` gave it before pi-durable 1.5: the newest
+ * head marker (a compaction summary, a reset, a handoff), then every other entry from its `head` onward. A view's window
+ * is the fork-aware history in entry ID order, with head markers where they were written.
+ */
+function activeView(view: ConversationView): ConversationView {
+	const { entries } = view;
+	let marker: EntryRecord | undefined;
+	for (let index = entries.length - 1; index >= 0; index--) {
+		if (entries[index]!.head !== undefined) {
+			marker = entries[index];
+			break;
+		}
+	}
+	const { before: _before, ...rest } = view;
+	if (marker === undefined) return { ...rest, entries };
+	const head = marker.head!;
+	return { ...rest, entries: [marker, ...entries.filter((entry) => entry !== marker && entry.id >= head)] };
+}
+
 /** Streams a pi-durable watch to Swift. */
-function pipe<T>(stream: number, watch: WatchHandle<T>, map: (value: T, ops: readonly unknown[]) => unknown = (value) => value): void {
+function pipe<T>(
+	stream: number,
+	watch: WatchHandle<T>,
+	map: (value: T, ops: readonly unknown[], retired: boolean) => unknown = (value) => value,
+): void {
 	openStream(stream, () => watch.stop());
-	emit(stream, map(watch.value, []));
-	watch.start(async (value, ops) => emit(stream, map(value, ops)));
+	emit(stream, map(watch.value, [], false));
+	// Durable's failures end the watch, so every call is a `value` call.
+	watch.start(async (call) => {
+		if (call.kind === "value") emit(stream, map(call.value, call.ops, call.retired));
+	});
 	watch.closed.then(
 		(end) => finish(stream, watchEndError(end)),
 		(error) => finish(stream, error),
@@ -195,10 +234,11 @@ register({
 						}
 					: {}),
 				...(args.clock ? { now: () => hostSync<number>("harness.now", { harness: args.id }) } : {}),
-				onReport: (error, info) => {
+				onReport: (report) => {
+					const { error, ...info } = report;
 					const message = error instanceof Error ? error.message : String(error);
-					if (args.report) void host("harness.report", { harness: args.id, message, info: info ?? null }).catch(() => undefined);
-					else console.warn("pi-durable:", info?.type ?? "report", message);
+					if (args.report) void host("harness.report", { harness: args.id, message, info }).catch(() => undefined);
+					else console.warn("pi-durable:", info.kind, message);
 				},
 			},
 			context,
@@ -215,7 +255,6 @@ register({
 	},
 	"harness.resume": (args) => harnessState(args.harness).harness.resume(),
 	"harness.wakeState": (args) => harnessState(args.harness).harness.wake(),
-	"harness.retryTask": (args, context) => harnessState(args.harness).harness.retryTask(args.task as TaskId, context),
 	"harness.setModels": (args) => {
 		harnessState(args.harness).setModels?.(args.models);
 	},
@@ -278,15 +317,20 @@ register({
 	"harness.abortTask": (args, context) => harnessState(args.harness).harness.abortTask(args.task as TaskId, context),
 	"harness.commits": (args) => {
 		const stream = args.stream as number;
-		const unsubscribe = harnessState(args.harness).harness.subscribeCommits((publication) => emit(stream, publication));
-		openStream(stream, unsubscribe);
+		const observation = harnessState(args.harness).harness.observeCommits({
+			advance: (publication) => emit(stream, publication),
+			// The Session closed or failed (`closed()` tells which): the stream ends.
+			end: () => finish(stream),
+		});
+		openStream(stream, () => observation.detach());
 	},
 	"harness.taskGraph": async (args, context) => {
-		const graph = await harnessState(args.harness).harness.taskGraph(context);
+		// pi-durable 1.5 removed `taskGraph()`: the first value of a task graph watch is the graph now.
+		const watch = await harnessState(args.harness).harness.watchTaskGraph(context);
 		try {
-			return graph.value;
+			return watch.value;
 		} finally {
-			graph.dispose();
+			await watch.stop();
 		}
 	},
 	"harness.watchTaskGraph": async (args, context) => {
@@ -354,19 +398,20 @@ register({
 	"conversation.entry": async (args, context) =>
 		(await (await conversation(args, context)).commit((tx) => tx.entry(args.entry as EntryId), context)) ?? null,
 	"conversation.view": async (args, context) => {
-		const view = await (await conversation(args, context)).viewState(context);
+		// pi-durable 1.5 removed `viewState()`: the first value of a view watch is the view now.
+		const watch = await (await conversation(args, context)).watch(context, WHOLE_TRANSCRIPT);
 		try {
-			return view.value;
+			return activeView(watch.value);
 		} finally {
-			view.dispose();
+			await watch.stop();
 		}
 	},
 	"conversation.watch": async (args, context) => {
 		// Entries are immutable, so after the first view only the entries appended since are sent (with how many of the
 		// previous ones to keep); a long transcript then costs nothing per update. A reset or compaction resends all.
 		let sent: readonly { id: unknown }[] | undefined;
-		pipe(args.stream, await (await conversation(args, context)).watch(context), (value) => {
-			const { entries, ...rest } = value as unknown as { entries: readonly { id: unknown }[] };
+		pipe(args.stream, await (await conversation(args, context)).watch(context, WHOLE_TRANSCRIPT), (value) => {
+			const { entries, ...rest } = activeView(value) as unknown as { entries: readonly { id: unknown }[] };
 			const previous = sent;
 			sent = entries;
 			if (previous !== undefined && previous.length <= entries.length) {
@@ -385,18 +430,6 @@ register({
 	"conversation.changes": async (args, context) => {
 		pipe(args.stream, await (await conversation(args, context)).watch(context), (view, ops) => ({ view, ops }));
 	},
-	"conversation.events": async (args, context) => {
-		const stream = args.stream as number;
-		const events = await watchEvents(harnessState(args.harness).harness, args.conversation, context);
-		openStream(stream, () => events.stop());
-		emit(stream, [events.snapshot]);
-		events.start(async (batch) => emit(stream, batch));
-		events.closed.then(
-			(end) => finish(stream, watchEndError(end)),
-			(error) => finish(stream, error),
-		);
-	},
-
 	/** A built-in conversation document: `pi.agent` (optionally as of an entry), `pi.live`, `pi.inbox`, `pi.usage`, `pi.provider`. */
 	"conversation.builtinDoc": async (args, context) => {
 		const { harness } = harnessState(args.harness);
@@ -467,6 +500,8 @@ register({
 			watch = await watchDoc(...watchArguments(args), context);
 			if (watch === undefined) throw new Error(`Document ${args.doc.kind} cannot be watched`);
 		}
-		pipe(args.stream, watch, (value) => value ?? args.doc.initial);
+		// A retired document reads as its initial value until it is created again (pi-durable 1.5 keeps watching its
+		// address: the retirement call keeps the last value and has no ops).
+		pipe(args.stream, watch, (value, ops, retired) => (retired && ops.length === 0 ? args.doc.initial : (value ?? args.doc.initial)));
 	},
 });

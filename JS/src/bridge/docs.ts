@@ -1,5 +1,6 @@
 // Application documents defined from Swift: scopes, keyed families, rewindable history, and migrations.
-import type { Context, JsonValue } from "@earendil-works/chord";
+import type { Context } from "@earendil-works/chord/context";
+import type { JsonValue } from "@earendil-works/chord/json";
 import {
 	type ConversationId,
 	defineDoc,
