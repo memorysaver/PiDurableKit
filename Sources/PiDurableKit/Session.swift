@@ -15,6 +15,11 @@ import Foundation
 /// format for you.
 public protocol CustomStorage: Sendable {
     /// Atomically persists one batch of `StorageWrite`s and returns its commit sequence number.
+    ///
+    /// pi-durable stores a group of commits per call since 1.5; PiDurableKit calls this once per batch, in order. Throw
+    /// ``StorageCommitRefused`` when pi-durable's own checks refuse the batch (global IDs, document actions, copy
+    /// sources) and nothing of it was stored: the group ends there, and the batches before it stay stored. Any other
+    /// error fails the session.
     func commit(_ writes: [JSONValue]) async throws -> Int
     /// A fresh ID from the session-global numeric namespace.
     func mintId() async throws -> Int
@@ -38,6 +43,15 @@ public protocol CustomStorage: Sendable {
     func scanDocuments(_ query: JSONValue, limit: Int, cursor: JSONValue?) async throws -> JSONValue
     /// Releases resources; later operations must fail.
     func close() async throws
+}
+
+/// Thrown by ``CustomStorage/commit(_:)`` for a batch pi-durable's own storage checks refuse, such as an ID that
+/// already belongs to another record (pi-durable `CommitResult.refused`). The message is the refusal's.
+public struct StorageCommitRefused: Error, Sendable, LocalizedError, CustomStringConvertible {
+    public let message: String
+    public init(_ message: String) { self.message = message }
+    public var description: String { message }
+    public var errorDescription: String? { message }
 }
 
 // MARK: Plain sessions
@@ -159,7 +173,7 @@ public final class Session: Sendable {
             bufferingPolicy: .bufferingNewest(1))
     }
 
-    /// Every commit's changes, as soon as it is stored (pi-durable `subscribeCommits`).
+    /// Every commit's changes, once it is stored (pi-durable `observeCommits`); ends when the session closes.
     public func commits() -> AsyncThrowingStream<CommitPublication, Error> {
         engine.stream("harness.commits", ["harness": id])
     }

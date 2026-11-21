@@ -288,6 +288,7 @@ final class HostRouter: Sendable {
             case "faux.respond": try await respond(arguments)
             case "sqlite.exec": try await sqliteExec(arguments)
             case "sqlite.run": try await sqliteRun(arguments)
+            case "sqlite.runCounted": try await sqliteRunCounted(arguments)
             case "sqlite.get": try await sqliteGet(arguments)
             case "sqlite.all": try await sqliteAll(arguments)
             case "sqlite.begin": try await sqliteBegin(arguments)
@@ -887,6 +888,10 @@ final class HostRouter: Sendable {
     private func sqliteRun(_ arguments: JSONValue) async throws -> JSONValue? {
         try await sqliteExecutor(arguments).run(arguments["sql"]?.stringValue ?? "", parameters(arguments))
         return nil
+    }
+
+    private func sqliteRunCounted(_ arguments: JSONValue) async throws -> Int {
+        try await sqliteExecutor(arguments).runCounted(arguments["sql"]?.stringValue ?? "", parameters(arguments))
     }
 
     private func sqliteGet(_ arguments: JSONValue) async throws -> JSONValue {

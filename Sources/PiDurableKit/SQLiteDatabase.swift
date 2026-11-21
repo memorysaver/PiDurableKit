@@ -20,8 +20,20 @@ public typealias SQLiteRow = [String: SQLiteValue]
 public protocol SQLiteExecutor: Sendable {
     func execute(_ sql: String) async throws
     func run(_ sql: String, _ parameters: [SQLiteValue]) async throws
+    /// Runs one statement like ``run(_:_:)`` and returns the rows it inserted, updated, or deleted, as SQLite's
+    /// `changes()` counts them (pi-durable `runCounted`, since 1.5). The default implementation runs the statement, then
+    /// reads `changes()`; override it when other work could run on the connection in between.
+    func runCounted(_ sql: String, _ parameters: [SQLiteValue]) async throws -> Int
     func get(_ sql: String, _ parameters: [SQLiteValue]) async throws -> SQLiteRow?
     func all(_ sql: String, _ parameters: [SQLiteValue]) async throws -> [SQLiteRow]
+}
+
+extension SQLiteExecutor {
+    public func runCounted(_ sql: String, _ parameters: [SQLiteValue]) async throws -> Int {
+        try await run(sql, parameters)
+        guard case .integer(let changes)? = try await get("SELECT changes() AS changes", [])?["changes"] else { return 0 }
+        return Int(changes)
+    }
 }
 
 /// A SQLite database you implement, for pi-durable's portable SQLite storage (pi-durable `SqliteDatabase`): for

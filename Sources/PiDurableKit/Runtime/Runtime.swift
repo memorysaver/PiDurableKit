@@ -300,6 +300,7 @@ actor Engine {
                 info["code"] = "storage_request"
             default: break
             }
+            if error is StorageCommitRefused { info["code"] = "storage_refused" }
             let json = (try? String(decoding: JSONEncoder().encode(info), as: UTF8.self)) ?? "{}"
             callbacks?.invokeMethod("hostReject", withArguments: [id, json])
         }
